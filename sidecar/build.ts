@@ -11,7 +11,15 @@ if (!existsSync(outDir)) {
     mkdirSync(outDir, { recursive: true });
 }
 
-await $`bunx --bun prisma generate`;
+// `prisma generate` never connects to the database, but prisma.config.ts
+// requires DATABASE_URL to resolve; satisfy it on machines without a
+// sidecar/.env (e.g. CI).
+await $`bunx --bun prisma generate`.env({
+    ...process.env,
+    DATABASE_URL:
+        process.env.DATABASE_URL ??
+        "postgres://placeholder:placeholder@localhost:5432/placeholder",
+});
 await $`bun build --compile --minify --target=bun-windows-x64 src/index.ts --outfile ${outfile}`;
 
 console.log(`sidecar built: ${outfile}`);
