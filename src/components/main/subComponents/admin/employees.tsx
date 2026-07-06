@@ -1,13 +1,26 @@
-import Label from "@/components/ui/label";
-import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTrigger} from "@/components/ui/dialog";
-import {Avatar, AvatarFallback, AvatarImage} from "@/components/ui/avatar";
+import { Label } from "@/components/ui/label";
+import {Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger} from "@/components/ui/dialog";
+import {Avatar, AvatarFallback} from "@/components/ui/avatar";
 import {Select, SelectContent, SelectItem, SelectTrigger, SelectValue} from "@/components/ui/select";
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/components/ui/card";
-import Input from "@/components/ui/input";
+import { Input } from "@/components/ui/input";
 import {Button} from "@/components/ui/button";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import React, {useEffect, useState} from "react";
 import TauriApi from "@/lib/Tauri";
-import {checkPermission} from "@/lib/utils";
+import {SpinnerIcon} from "@/components/component/icons";
+import {canEditPunches, ACCESS_LEVEL_LABELS, normalizeAccessLevel, type PontuallAccessLevel} from "@/lib/pontuall-permissions";
+import {toast} from "sonner";
 
 type EmployeesProps = {
     filteredEmployees: Users,
@@ -16,8 +29,55 @@ type EmployeesProps = {
     selectedEmployee: IUsers | null,
     setUsers: React.Dispatch<React.SetStateAction<Users | []>>
     GetData: (id: string) => void,
-    Permissions: StatePermissions | null
+    setSelectedEmployee: React.Dispatch<React.SetStateAction<IUsers | null>>,
+    capabilities: SessionCapabilities | null
 }
+
+type EditUserForm = {
+    name: string,
+    email: string,
+    role: string,
+    lunchTime: string,
+    phone: string,
+    accessLevel: PontuallAccessLevel,
+}
+
+function lunchTimeForInput(value?: string): string {
+    if (!value) return "";
+    const parts = value.split(":");
+    if (parts.length >= 2) {
+        return `${parts[0].padStart(2, "0")}:${parts[1].padStart(2, "0")}`;
+    }
+    return value;
+}
+
+function lunchTimeForSave(value: string): string {
+    if (!value.trim()) return "";
+    return value.length === 5 ? `${value}:00` : value;
+}
+
+function accessRoleToLevel(accessRole?: string | null): PontuallAccessLevel {
+    return normalizeAccessLevel(accessRole ?? "employee");
+}
+
+function employeeToEditForm(employee: IUsers): EditUserForm {
+    return {
+        name: employee.name,
+        email: employee.email ?? "",
+        role: employee.role,
+        lunchTime: lunchTimeForInput(employee.lunch_time),
+        phone: employee.phone ?? "",
+        accessLevel: accessRoleToLevel(employee.access_role),
+    };
+}
+
+const EMPTY_HOUR_DATA: HourData = {
+    clock_in: "",
+    lunch_break_out: "",
+    lunch_break_return: "",
+    clocked_out: "",
+    total_hours: "",
+};
 
 export default function Employees(
     {
@@ -27,18 +87,13 @@ export default function Employees(
         selectedEmployee,
         setUsers,
         GetData,
-        Permissions
+        setSelectedEmployee,
+        capabilities
     }: EmployeesProps
 ) {
 
     const [enableEdit, setEnableEdit] = useState(true);
-    const [hourData, setHourData] = useState<HourData>({
-        clock_in: "",
-        lunch_break_out: "",
-        lunch_break_return: "",
-        clocked_out: "",
-        total_hours: ""
-    });
+    const [hourData, setHourData] = useState<HourData>(EMPTY_HOUR_DATA);
     const [updateMessage, setUpdateMessage] = useState<{
         type: string,
         message: string
@@ -48,18 +103,74 @@ export default function Employees(
     });
     const [sortedDates, setSortedDates] = useState<string[]>([]);
     const [editUserModal, setEditUserModal] = useState(false);
+    const [editUserForm, setEditUserForm] = useState<EditUserForm | null>(null);
+    const [savingProfile, setSavingProfile] = useState(false);
+    const [deleteDayLoading, setDeleteDayLoading] = useState(false);
+    const [cardModalOpen, setCardModalOpen] = useState(false);
+    const [cardProvisioning, setCardProvisioning] = useState(false);
 
     useEffect(() => {
-        if (selectedEmployee && selectedDate !== "") {
-            setHourData(selectedEmployee.hour_data[selectedDate])
+        if (!selectedEmployee || selectedDate === "") {
+            setHourData(EMPTY_HOUR_DATA);
+            return;
         }
-    }, [selectedDate])
+        const data = selectedEmployee.hour_data?.[selectedDate];
+        setHourData(data ?? EMPTY_HOUR_DATA);
+    }, [selectedDate, selectedEmployee]);
+
+    function openEditUserModal() {
+        if (!selectedEmployee) return;
+        setEditUserForm(employeeToEditForm(selectedEmployee));
+        setEditUserModal(true);
+    }
+
+    async function refreshUsers() {
+        const data = await TauriApi.GetCache();
+        const users = Object.values(data) as Users;
+        setUsers(users);
+    }
+
+    async function handleSaveProfile() {
+        if (!selectedEmployee || !editUserForm) return;
+
+        const name = editUserForm.name.trim();
+        if (!name) {
+            toast.error("Informe o nome do funcionário.");
+            return;
+        }
+
+        setSavingProfile(true);
+        try {
+            await TauriApi.UpdateEmployee(
+                selectedEmployee.id,
+                name,
+                editUserForm.email,
+                editUserForm.role.trim(),
+                lunchTimeForSave(editUserForm.lunchTime),
+                editUserForm.phone,
+                editUserForm.accessLevel,
+            );
+            await refreshUsers();
+            GetData(selectedEmployee.id);
+            setEditUserModal(false);
+            toast.success("Dados do funcionário atualizados.");
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            toast.error(message || "Não foi possível atualizar o funcionário.");
+        } finally {
+            setSavingProfile(false);
+        }
+    }
 
     async function HandleEdit() {
+        if (!selectedEmployee?.hour_data?.[selectedDate]) {
+            return;
+        }
+
         // Check the keys that were modified
         const modifiedKeys = Object.keys(hourData).filter((key) => {
             // @ts-ignore
-            return selectedEmployee!.hour_data[selectedDate][key] !== hourData[key]
+            return selectedEmployee.hour_data[selectedDate][key] !== hourData[key]
         });
 
         // Validate if keys are valid
@@ -158,12 +269,67 @@ export default function Employees(
         }
     }
 
-    const editPerms = checkPermission("WriteSelf", Permissions!) &&
-        checkPermission("EditHours", Permissions!) &&
-        checkPermission("WriteOthers", Permissions!) &&
-        checkPermission("ReadOthers", Permissions!);
+    async function handleReprovisionCard() {
+        if (!selectedEmployee) return;
+        setCardProvisioning(true);
+        try {
+            await TauriApi.ReprovisionCard(selectedEmployee.id);
+            toast.success("Novo cartão vinculado", {
+                description: `Os cartões anteriores de ${selectedEmployee.name} foram bloqueados.`,
+            });
+            setCardModalOpen(false);
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            toast.error(message || "Não foi possível vincular o novo cartão.");
+        } finally {
+            setCardProvisioning(false);
+        }
+    }
 
-    const editHierarchy = checkPermission("EditHierarchy", Permissions!);
+    function closeCardModal() {
+        if (cardProvisioning) {
+            void TauriApi.CancelCard().catch(() => undefined);
+        }
+        setCardModalOpen(false);
+        setCardProvisioning(false);
+    }
+
+    const editPerms = capabilities ? canEditPunches(capabilities) : false;
+    const editHierarchy = capabilities?.hierarchyManage ?? false;
+    const canProvisionCard = capabilities?.cardProvision ?? false;
+
+    const hasDayData = Boolean(
+        selectedEmployee &&
+        selectedDate !== "" &&
+        selectedEmployee.hour_data?.[selectedDate]
+    );
+
+    async function handleDeleteDay() {
+        if (!selectedEmployee || selectedDate === "" || !hasDayData) return;
+
+        setDeleteDayLoading(true);
+        try {
+            await TauriApi.DeleteTimeEntryDay(selectedEmployee.id, selectedDate);
+            const {[selectedDate]: _removed, ...restHourData} = selectedEmployee.hour_data;
+            const updatedEmployee = {...selectedEmployee, hour_data: restHourData};
+            setUsers((prev) =>
+                prev.map((user) =>
+                    user.id === selectedEmployee.id ? updatedEmployee : user
+                )
+            );
+            setSelectedEmployee(updatedEmployee);
+            setSelectedDate("");
+            setHourData(EMPTY_HOUR_DATA);
+            setEnableEdit(true);
+            setUpdateMessage({type: "", message: ""});
+            toast.success(`Pontos de ${selectedDate} excluídos.`);
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            toast.error(message || "Não foi possível excluir os pontos do dia.");
+        } finally {
+            setDeleteDayLoading(false);
+        }
+    }
 
     useEffect(() => {
         if (selectedEmployee) {
@@ -210,7 +376,6 @@ export default function Employees(
                                                 className="bg-muted rounded-lg p-4 flex items-center justify-between w-[500px] max-w-[580px]">
                                             <div className="flex items-center gap-2">
                                                 <Avatar className="border">
-                                                    <AvatarImage src="/placeholder-user.jpg"/>
                                                     <AvatarFallback>{employee.name.charAt(0)}</AvatarFallback>
                                                 </Avatar>
                                                 <div className={"flex flex-col items-start"}>
@@ -228,18 +393,11 @@ export default function Employees(
                                             type: "",
                                             message: ""
                                         })
-                                        setHourData({
-                                            clock_in: "",
-                                            lunch_break_out: "",
-                                            lunch_break_return: "",
-                                            clocked_out: "",
-                                            total_hours: ""
-                                        })
+                                        setHourData(EMPTY_HOUR_DATA)
                                     }}>
                                         <DialogHeader>
                                             <div className="flex items-center gap-4">
                                                 <Avatar className="border">
-                                                    <AvatarImage src="/placeholder-user.jpg"/>
                                                     <AvatarFallback>{employee.name.charAt(0)}</AvatarFallback>
                                                 </Avatar>
                                                 <div className={"flex flex-col items-start"}>
@@ -267,8 +425,8 @@ export default function Employees(
                                                         <SelectContent>
                                                             {
                                                                 sortedDates.length === 0 ? (
-                                                                    <SelectItem value={"Nenhum Dado Encontrado"}>
-                                                                        Nenhum Dado Encontrado
+                                                                    <SelectItem value="no-data" disabled>
+                                                                        Nenhum dado encontrado
                                                                     </SelectItem>
                                                                 ) : sortedDates.map((date, index) => (
                                                                     <SelectItem value={date} key={index}>
@@ -377,38 +535,85 @@ export default function Employees(
                                             )
                                         }
                                         <DialogFooter>
-                                            <div className={"flex gap-4"}>
-                                                <Button
-                                                    variant="destructive"
-                                                    disabled={selectedDate === "" || !editPerms}
-                                                >
-                                                    Excluir
-                                                </Button>
-                                                <Button
-                                                    variant="default"
-                                                    disabled={selectedDate === "" || !editPerms}
-                                                    onClick={() => {
-                                                        setEnableEdit(!enableEdit)
-                                                    }}
-                                                >
-                                                    Editar
-                                                </Button>
-                                                {
-                                                    !enableEdit && (
+                                            <div className={"flex w-full flex-wrap items-center justify-between gap-2"}>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <Button
+                                                        variant="default"
+                                                        disabled={selectedDate === "" || !editPerms}
+                                                        onClick={() => {
+                                                            setEnableEdit(!enableEdit)
+                                                        }}
+                                                    >
+                                                        Editar
+                                                    </Button>
+                                                    {
+                                                        !enableEdit && (
+                                                            <Button
+                                                                variant="default"
+                                                                onClick={() => {
+                                                                    HandleEdit()
+                                                                }}
+                                                            >
+                                                                Salvar
+                                                            </Button>
+                                                        )
+                                                    }
+                                                    {editHierarchy && (
                                                         <Button
-                                                            variant="primary"
-                                                            onClick={() => {
-                                                                // Check what was modified and what wasn't
-                                                                HandleEdit()
-                                                            }}
+                                                            variant="secondary"
+                                                            onClick={openEditUserModal}
                                                         >
-                                                            Salvar
+                                                            Editar perfil
                                                         </Button>
-                                                    )
-                                                }
-                                                <Button disabled={!editPerms} variant="default">
-                                                    Editar Usuário
-                                                </Button>
+                                                    )}
+                                                    {canProvisionCard && (
+                                                        <Button
+                                                            variant="secondary"
+                                                            onClick={() => setCardModalOpen(true)}
+                                                        >
+                                                            Novo cartão
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                                {editPerms && (
+                                                    <AlertDialog>
+                                                        <AlertDialogTrigger asChild>
+                                                            <Button
+                                                                variant="destructive"
+                                                                disabled={
+                                                                    !hasDayData ||
+                                                                    deleteDayLoading ||
+                                                                    !enableEdit
+                                                                }
+                                                            >
+                                                                Excluir dia
+                                                            </Button>
+                                                        </AlertDialogTrigger>
+                                                        <AlertDialogContent>
+                                                            <AlertDialogHeader>
+                                                                <AlertDialogTitle>
+                                                                    Excluir pontos do dia?
+                                                                </AlertDialogTitle>
+                                                                <AlertDialogDescription>
+                                                                    Isso remove todos os registros de{" "}
+                                                                    <strong>{selectedDate}</strong> para{" "}
+                                                                    <strong>{selectedEmployee?.name}</strong>.
+                                                                    Esta ação não pode ser desfeita.
+                                                                </AlertDialogDescription>
+                                                            </AlertDialogHeader>
+                                                            <AlertDialogFooter>
+                                                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                                <AlertDialogAction
+                                                                    variant="destructive"
+                                                                    disabled={deleteDayLoading}
+                                                                    onClick={() => void handleDeleteDay()}
+                                                                >
+                                                                    {deleteDayLoading ? "Excluindo…" : "Excluir dia"}
+                                                                </AlertDialogAction>
+                                                            </AlertDialogFooter>
+                                                        </AlertDialogContent>
+                                                    </AlertDialog>
+                                                )}
                                             </div>
                                         </DialogFooter>
                                     </DialogContent>
@@ -417,41 +622,164 @@ export default function Employees(
                         ))
                 )
             }
-            <Dialog open={editUserModal} onOpenChange={(open) => setEditUserModal(open)}>
+            <Dialog
+                open={cardModalOpen}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        closeCardModal();
+                        return;
+                    }
+                    setCardModalOpen(true);
+                }}
+            >
                 <DialogContent>
                     <DialogHeader>
-                        <CardHeader>
-                            <CardTitle>Editar Usuário</CardTitle>
-                        </CardHeader>
+                        <DialogTitle>Novo cartão</DialogTitle>
                     </DialogHeader>
-                    <CardContent>
-                        <div className="grid gap-4">
+                    {cardProvisioning ? (
+                        <div className="flex flex-col items-center gap-4 py-4 text-center">
+                            <p className="text-sm">
+                                Aproxime um cartão em branco do leitor para vincular a{" "}
+                                <strong>{selectedEmployee?.name}</strong>.
+                            </p>
+                            <SpinnerIcon className="h-16 w-16 animate-spin"/>
+                        </div>
+                    ) : (
+                        <p className="text-sm text-muted-foreground">
+                            Vincula um novo cartão NFC a{" "}
+                            <strong>{selectedEmployee?.name}</strong>. Os cartões anteriores
+                            serão bloqueados e deixarão de bater ponto — use para substituir um
+                            cartão perdido ou danificado.
+                        </p>
+                    )}
+                    <DialogFooter>
+                        {cardProvisioning ? (
+                            <Button
+                                variant="outline"
+                                onClick={() => {
+                                    void TauriApi.CancelCard().catch(() => undefined);
+                                    setCardProvisioning(false);
+                                }}
+                            >
+                                Cancelar leitura
+                            </Button>
+                        ) : (
+                            <>
+                                <Button variant="outline" onClick={closeCardModal}>
+                                    Cancelar
+                                </Button>
+                                <Button onClick={() => void handleReprovisionCard()}>
+                                    Ler novo cartão
+                                </Button>
+                            </>
+                        )}
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+            <Dialog
+                open={editUserModal}
+                onOpenChange={(open) => {
+                    setEditUserModal(open);
+                    if (!open) setEditUserForm(null);
+                }}
+            >
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>Editar perfil</DialogTitle>
+                    </DialogHeader>
+                    {editUserForm && (
+                        <div className="grid gap-4 py-2">
                             <div>
-                                <Label htmlFor="name">Nome</Label>
-                                <Input id="name" type="text" placeholder={selectedEmployee?.name}/>
+                                <Label htmlFor="edit-name">Nome</Label>
+                                <Input
+                                    id="edit-name"
+                                    type="text"
+                                    value={editUserForm.name}
+                                    onChange={(e) =>
+                                        setEditUserForm({...editUserForm, name: e.target.value})
+                                    }
+                                />
                             </div>
                             <div>
-                                <Label htmlFor="email">E-mail</Label>
-                                <Input id="email" type="email" placeholder={selectedEmployee?.email}/>
+                                <Label htmlFor="edit-email">E-mail</Label>
+                                <Input
+                                    id="edit-email"
+                                    type="email"
+                                    value={editUserForm.email}
+                                    onChange={(e) =>
+                                        setEditUserForm({...editUserForm, email: e.target.value})
+                                    }
+                                />
                             </div>
                             <div>
-                                <Label htmlFor="role">Cargo</Label>
-                                <Input id="role" type="text" placeholder={selectedEmployee?.role}/>
+                                <Label htmlFor="edit-role">Cargo</Label>
+                                <Input
+                                    id="edit-role"
+                                    type="text"
+                                    value={editUserForm.role}
+                                    onChange={(e) =>
+                                        setEditUserForm({...editUserForm, role: e.target.value})
+                                    }
+                                />
                             </div>
                             <div>
-                                <Label htmlFor="lunch-time">Horário de Almoço</Label>
-                                <Input id="lunch-time" type="text" placeholder={selectedEmployee?.lunch_time}/>
+                                <Label htmlFor="edit-lunch-time">Horário de almoço</Label>
+                                <Input
+                                    id="edit-lunch-time"
+                                    type="time"
+                                    value={editUserForm.lunchTime}
+                                    onChange={(e) =>
+                                        setEditUserForm({...editUserForm, lunchTime: e.target.value})
+                                    }
+                                />
                             </div>
                             <div>
-                                <Label htmlFor="phone">Telefone</Label>
-                                <Input id="phone" type="text" placeholder=""/>
+                                <Label htmlFor="edit-phone">Telefone</Label>
+                                <Input
+                                    id="edit-phone"
+                                    type="tel"
+                                    value={editUserForm.phone}
+                                    onChange={(e) =>
+                                        setEditUserForm({...editUserForm, phone: e.target.value})
+                                    }
+                                />
                             </div>
                             <div>
-                                <Label htmlFor="permissions">Permissões</Label>
-                                <Input id="permissions" type="text" placeholder=""/>
+                                <Label htmlFor="edit-access-level">Nível de acesso</Label>
+                                <Select
+                                    value={editUserForm.accessLevel}
+                                    onValueChange={(value: PontuallAccessLevel) =>
+                                        setEditUserForm({...editUserForm, accessLevel: value})
+                                    }
+                                >
+                                    <SelectTrigger id="edit-access-level">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {(Object.keys(ACCESS_LEVEL_LABELS) as PontuallAccessLevel[]).map(
+                                            (level) => (
+                                                <SelectItem key={level} value={level}>
+                                                    {ACCESS_LEVEL_LABELS[level]}
+                                                </SelectItem>
+                                            )
+                                        )}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
-                    </CardContent>
+                    )}
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setEditUserModal(false)}
+                            disabled={savingProfile}
+                        >
+                            Cancelar
+                        </Button>
+                        <Button onClick={handleSaveProfile} disabled={savingProfile || !editUserForm}>
+                            {savingProfile ? "Salvando…" : "Salvar"}
+                        </Button>
+                    </DialogFooter>
                 </DialogContent>
             </Dialog>
         </>

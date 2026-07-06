@@ -1,10 +1,26 @@
 use std::collections::HashMap;
 
-
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Weekday};
 use rust_xlsxwriter::*;
+use tauri::AppHandle;
+use tauri_plugin_dialog::DialogExt;
 
-use crate::database::schemas::user_schema::{HourData, UserExternal};
+use crate::auth::guard;
+use crate::db::models::{HourData, UserExternal};
+use crate::auth::permissions::PermissionAction;
+use crate::excel::error::ExcelError;
+
+fn parse_date(value: &str) -> Result<NaiveDate, ExcelError> {
+    NaiveDate::parse_from_str(value, "%d/%m/%Y")
+        .or_else(|_| NaiveDate::parse_from_str(value, "%Y-%m-%d"))
+        .map_err(|_| ExcelError::InvalidDate(value.to_string()))
+}
+
+fn parse_time(value: &str) -> Result<NaiveTime, ExcelError> {
+    NaiveTime::parse_from_str(value, "%H:%M:%S")
+        .or_else(|_| NaiveTime::parse_from_str(value, "%H:%M"))
+        .map_err(|_| ExcelError::InvalidDate(value.to_string()))
+}
 
 /// Generates an Excel report based on user attendance data.
 ///
@@ -22,25 +38,37 @@ use crate::database::schemas::user_schema::{HourData, UserExternal};
 ///
 /// * `Result<bool, ()>` - Returns `Ok(true)` if the report is successfully created, otherwise returns `Err(())`.
 #[tauri::command]
-pub(crate) fn create_excel_relatory(
+pub(crate) async fn create_excel_relatory(
+    app: AppHandle,
     date_start: String,
     date_end: String,
     entry_time: String,
     exit_time: String,
     tolerance: String,
     users: HashMap<String, UserExternal>,
-) -> Result<bool, ()> {
+) -> Result<bool, ExcelError> {
+    guard::require_current(&app, PermissionAction::CreateReports).await?;
+
+    // Let the user choose where to save instead of a hardcoded path.
+    let destination = app
+        .dialog()
+        .file()
+        .add_filter("Planilha Excel", &["xlsx"])
+        .set_file_name("relatorio.xlsx")
+        .blocking_save_file()
+        .ok_or(ExcelError::NoDestination)?;
+
     let mut workbook = Workbook::new();
     let worksheet = workbook.add_worksheet();
 
     // Write the header row
     let bold = Format::new().set_bold().set_font_size(14.0);
-    worksheet.write_string_with_format(0, 0, "Nome", &bold).unwrap();
-    worksheet.write_string_with_format(0, 1, "Dia", &bold).unwrap();
-    worksheet.write_string_with_format(0, 2, "Entrada", &bold).unwrap();
-    worksheet.write_string_with_format(0, 3, "Almoço - Saída", &bold).unwrap();
-    worksheet.write_string_with_format(0, 4, "Almoço - Retorno", &bold).unwrap();
-    worksheet.write_string_with_format(0, 5, "Saída", &bold).unwrap();
+    worksheet.write_string_with_format(0, 0, "Nome", &bold)?;
+    worksheet.write_string_with_format(0, 1, "Dia", &bold)?;
+    worksheet.write_string_with_format(0, 2, "Entrada", &bold)?;
+    worksheet.write_string_with_format(0, 3, "Almoço - Saída", &bold)?;
+    worksheet.write_string_with_format(0, 4, "Almoço - Retorno", &bold)?;
+    worksheet.write_string_with_format(0, 5, "Saída", &bold)?;
 
     // Define formats for early and late entries
     let early_color = Format::new()
@@ -54,58 +82,35 @@ pub(crate) fn create_excel_relatory(
         .set_border(FormatBorder::Thin); // Unregistered entries
 
     // Write the legend row as a color guide
-    worksheet
-        .write_string_with_format(0, 8, "Legenda", &Format::new().set_bold())
-        .unwrap();
-    worksheet
-        .write_string_with_format(1, 8, "Entrada antecipada", &early_color)
-        .unwrap();
-    worksheet
-        .write_string_with_format(2, 8, "Entrada atrasada/Saida antecipada", &late_color)
-        .unwrap();
-    worksheet
-        .write_string_with_format(3, 8, "Dia não registrado", &unregistered_color)
-        .unwrap();
-    worksheet
-        .write_string(5, 8, "Domingos não são registrados!")
-        .unwrap();
+    worksheet.write_string_with_format(0, 8, "Legenda", &Format::new().set_bold())?;
+    worksheet.write_string_with_format(1, 8, "Entrada antecipada", &early_color)?;
+    worksheet.write_string_with_format(2, 8, "Entrada atrasada/Saida antecipada", &late_color)?;
+    worksheet.write_string_with_format(3, 8, "Dia não registrado", &unregistered_color)?;
+    worksheet.write_string(5, 8, "Domingos não são registrados!")?;
 
-
-    worksheet
-        .write_string(6, 8, "Horários Configurados:")
-        .unwrap();
-    worksheet
-        .write_string(7, 8, format!("Entrada: {}", entry_time).as_str())
-        .unwrap();
-    worksheet
-        .write_string(8, 8, format!("Saída: {}", exit_time).as_str())
-        .unwrap();
-    worksheet
-        .write_string(9, 8, format!("Tolerância: {} minutos", tolerance).as_str())
-        .unwrap();
+    worksheet.write_string(6, 8, "Horários Configurados:")?;
+    worksheet.write_string(7, 8, format!("Entrada: {}", entry_time).as_str())?;
+    worksheet.write_string(8, 8, format!("Saída: {}", exit_time).as_str())?;
+    worksheet.write_string(9, 8, format!("Tolerância: {} minutos", tolerance).as_str())?;
 
     // Set column widths
-    worksheet.set_column_width(0, 30).unwrap();
-    worksheet.set_column_width(1, 12).unwrap();
-    worksheet.set_column_width(2, 10).unwrap();
-    worksheet.set_column_width(3, 18).unwrap();
-    worksheet.set_column_width(4, 18).unwrap();
-    worksheet.set_column_width(5, 10).unwrap();
-    worksheet.set_column_width(8, 30).unwrap();
+    worksheet.set_column_width(0, 30)?;
+    worksheet.set_column_width(1, 12)?;
+    worksheet.set_column_width(2, 10)?;
+    worksheet.set_column_width(3, 18)?;
+    worksheet.set_column_width(4, 18)?;
+    worksheet.set_column_width(5, 10)?;
+    worksheet.set_column_width(8, 30)?;
+
+    let range_start = parse_date(&date_start)?;
+    let range_end = parse_date(&date_end)?;
 
     // Collect data rows within the date range
     let mut data_rows: Vec<(String, String, HourData)> = Vec::new();
     for (name, user) in users.iter() {
         for (date_str, hour_data) in user.hour_data.clone().unwrap_or_default() {
-            // Parse date string into NaiveDate for comparison
-            let date =
-                NaiveDate::parse_from_str(&date_str, "%d/%m/%Y").expect("Invalid date format");
-            if date
-                >= NaiveDate::parse_from_str(&date_start, "%d/%m/%Y").expect("Invalid date format")
-                && date
-                <= NaiveDate::parse_from_str(&date_end, "%d/%m/%Y")
-                .expect("Invalid date format")
-            {
+            let date = parse_date(&date_str)?;
+            if date >= range_start && date <= range_end {
                 data_rows.push((name.clone(), date_str.clone(), hour_data.clone()));
             }
         }
@@ -124,12 +129,12 @@ pub(crate) fn create_excel_relatory(
     });
 
     // Convert tolerance to minutes
-    let tolerance_minutes = tolerance.parse::<i32>().map_err(|_| ())?;
+    let tolerance_minutes = tolerance
+        .parse::<i32>()
+        .map_err(|_| ExcelError::InvalidDate(format!("tolerância inválida: {tolerance}")))?;
 
     // Write the Excel file, filtering by name and date.
-    let start_date = NaiveDate::parse_from_str(&date_start, "%d/%m/%Y").unwrap();
-    let end_date = NaiveDate::parse_from_str(&date_end, "%d/%m/%Y").unwrap();
-    let dates = generate_dates_range(start_date, end_date);
+    let dates = generate_dates_range(range_start, range_end);
 
     let mut row = 1;
     let mut last_user = String::new();
@@ -149,34 +154,19 @@ pub(crate) fn create_excel_relatory(
                 .cloned();
 
             if let Some(hour_data) = hour_data {
-                let entry_time = NaiveTime::parse_from_str(&entry_time, "%H:%M:%S").unwrap();
-                let exit_time = NaiveTime::parse_from_str(&exit_time, "%H:%M:%S").unwrap();
+                let entry_time = parse_time(&entry_time)?;
+                let exit_time = parse_time(&exit_time)?;
 
                 let clock_in = if hour_data.clock_in == "N/A" {
                     None
                 } else {
-                    // If the clock_in has only two numerical values (Ex: "HH:MM"), add ":00"
-                    // to parse it correctly
-                    let clock_in = if hour_data.clock_in.len() == 5 {
-                        format!("{}:00", hour_data.clock_in)
-                    } else {
-                        hour_data.clock_in.clone()
-                    };
-
-                    Some(NaiveTime::parse_from_str(&clock_in, "%H:%M:%S").unwrap())
+                    Some(parse_time(&hour_data.clock_in)?)
                 };
                 // Check if the clocked_out is N/A
                 let clocked_out = if hour_data.clocked_out == "N/A" {
                     None
                 } else {
-                    // Do the same formatting that was done on the clock_in to prevent errors
-                    let clocked_out = if hour_data.clocked_out.len() == 5 {
-                        format!("{}:00", hour_data.clocked_out)
-                    } else {
-                        hour_data.clocked_out.clone()
-                    };
-
-                    Some(NaiveTime::parse_from_str(&clocked_out, "%H:%M:%S").unwrap())
+                    Some(parse_time(&hour_data.clocked_out)?)
                 };
 
                 let is_early = clock_in.map_or(false, |clock_in| {
@@ -199,94 +189,74 @@ pub(crate) fn create_excel_relatory(
                     clocked_out.signed_duration_since(exit_time).num_minutes() < 0
                 });
 
-                worksheet
-                    .write_string_with_format(
-                        row,
-                        0,
-                        name,
-                        &Format::new().set_border(FormatBorder::Thin),
-                    )
-                    .unwrap();
-                worksheet
-                    .write_string_with_format(
-                        row,
-                        1,
-                        &date_str,
-                        &Format::new().set_border(FormatBorder::Thin),
-                    )
-                    .unwrap();
-                worksheet
-                    .write_string_with_format(
-                        row,
-                        3,
-                        &hour_data.lunch_break_out,
-                        &Format::new().set_border(FormatBorder::Thin),
-                    )
-                    .unwrap();
-                worksheet
-                    .write_string_with_format(
-                        row,
-                        4,
-                        &hour_data.lunch_break_return,
-                        &Format::new().set_border(FormatBorder::Thin),
-                    )
-                    .unwrap();
+                worksheet.write_string_with_format(
+                    row,
+                    0,
+                    name,
+                    &Format::new().set_border(FormatBorder::Thin),
+                )?;
+                worksheet.write_string_with_format(
+                    row,
+                    1,
+                    &date_str,
+                    &Format::new().set_border(FormatBorder::Thin),
+                )?;
+                worksheet.write_string_with_format(
+                    row,
+                    3,
+                    &hour_data.lunch_break_out,
+                    &Format::new().set_border(FormatBorder::Thin),
+                )?;
+                worksheet.write_string_with_format(
+                    row,
+                    4,
+                    &hour_data.lunch_break_return,
+                    &Format::new().set_border(FormatBorder::Thin),
+                )?;
 
                 if is_early {
-                    worksheet
-                        .write_string_with_format(row, 2, &hour_data.clock_in, &early_color)
-                        .unwrap();
+                    worksheet.write_string_with_format(
+                        row,
+                        2,
+                        &hour_data.clock_in,
+                        &early_color,
+                    )?;
                 } else if is_late {
-                    worksheet
-                        .write_string_with_format(row, 2, &hour_data.clock_in, &late_color)
-                        .unwrap();
+                    worksheet.write_string_with_format(row, 2, &hour_data.clock_in, &late_color)?;
                 } else {
-                    worksheet
-                        .write_string_with_format(
-                            row,
-                            2,
-                            &hour_data.clock_in,
-                            &Format::new().set_border(FormatBorder::Thin),
-                        )
-                        .unwrap();
+                    worksheet.write_string_with_format(
+                        row,
+                        2,
+                        &hour_data.clock_in,
+                        &Format::new().set_border(FormatBorder::Thin),
+                    )?;
                 }
 
                 if left_too_early {
-                    worksheet
-                        .write_string_with_format(row, 5, &hour_data.clocked_out, &late_color)
-                        .unwrap();
+                    worksheet.write_string_with_format(
+                        row,
+                        5,
+                        &hour_data.clocked_out,
+                        &late_color,
+                    )?;
                 } else {
-                    worksheet
-                        .write_string_with_format(
-                            row,
-                            5,
-                            &hour_data.clocked_out,
-                            &Format::new().set_border(FormatBorder::Thin),
-                        )
-                        .unwrap();
+                    worksheet.write_string_with_format(
+                        row,
+                        5,
+                        &hour_data.clocked_out,
+                        &Format::new().set_border(FormatBorder::Thin),
+                    )?;
                 }
 
                 row += 1;
             } else {
                 // Write missing day with placeholder data
-                worksheet
-                    .write_string_with_format(row, 0, name, &unregistered_color)
-                    .unwrap();
-                worksheet
-                    .write_string_with_format(row, 1, &date_str, &unregistered_color)
-                    .unwrap();
-                worksheet
-                    .write_string_with_format(row, 2, "N/A", &unregistered_color)
-                    .unwrap(); // Placeholder for missing entry
-                worksheet
-                    .write_string_with_format(row, 3, "N/A", &unregistered_color)
-                    .unwrap(); // Placeholder for missing lunch break
-                worksheet
-                    .write_string_with_format(row, 4, "N/A", &unregistered_color)
-                    .unwrap(); // Placeholder for missing clock-out
-                worksheet
-                    .write_string_with_format(row, 5, "N/A", &unregistered_color)
-                    .unwrap(); // Placeholder for missing total hours
+                worksheet.write_string_with_format(row, 0, name, &unregistered_color)?;
+                worksheet.write_string_with_format(row, 1, &date_str, &unregistered_color)?;
+                worksheet.write_string_with_format(row, 2, "N/A", &unregistered_color)?; // Placeholder for missing entry
+                worksheet.write_string_with_format(row, 3, "N/A", &unregistered_color)?; // Placeholder for missing lunch break
+                worksheet.write_string_with_format(row, 4, "N/A", &unregistered_color)?; // Placeholder for missing clock-out
+                worksheet.write_string_with_format(row, 5, "N/A", &unregistered_color)?; // Placeholder for missing total hours
 
                 row += 1;
             }
@@ -295,18 +265,7 @@ pub(crate) fn create_excel_relatory(
         last_user = name.clone(); // Update the last_user to current name
     }
 
-    // Define the path to save the Excel file
-    let path = dirs::document_dir().unwrap().join("PontuAll/relatory.xlsx");
-
-    // Create directory if it doesn't exist, otherwise remove the existing file
-    if !path.exists() {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-    } else {
-        std::fs::remove_file(&path).unwrap();
-    }
-
-    // Save the workbook
-    workbook.save(path).unwrap();
+    workbook.save(destination.to_string())?;
 
     Ok(true)
 }
@@ -347,7 +306,7 @@ fn generate_dates_range(start_date: NaiveDate, end_date: NaiveDate) -> Vec<Naive
 //     async fn test_create_excel_relatory() {
 //         let db = create_db_connection()
 //             .await
-//             .unwrap();
+//             ?;
 //         get_users_and_cache(db).await;
 //         let users = get_cache();
 //
@@ -360,7 +319,7 @@ fn generate_dates_range(start_date: NaiveDate, end_date: NaiveDate) -> Vec<Naive
 //             "10".to_string(),
 //             users,
 //         )
-//             .unwrap();
+//             ?;
 //
 //         assert_eq!(create, true);
 //     }

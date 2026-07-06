@@ -1,468 +1,438 @@
 import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogHeader,
-	DialogTitle,
-	DialogTrigger
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
 } from "@/components/ui/dialog";
 import {Button} from "@/components/ui/button";
 import {SpinnerIcon, SuccessCircle} from "@/components/component/icons";
-import Label from "@/components/ui/label";
-import Input from "@/components/ui/input";
+import {Label} from "@/components/ui/label";
+import {Input} from "@/components/ui/input";
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import React, {useEffect, useState} from "react";
 import TauriApi from "@/lib/Tauri";
+import {toast} from "sonner";
+import {ChevronDown, UserPlus} from "lucide-react";
 import {
-	DropdownMenu,
-	DropdownMenuCheckboxItem,
-	DropdownMenuContent,
-	DropdownMenuTrigger
-} from "@/components/ui/dropdown-menu";
-import {ChevronDownIcon} from "@radix-ui/react-icons";
-import {Checkbox} from "@/components/ui/checkbox";
+    ACCESS_LEVEL_LABELS,
+    type PontuallAccessLevel,
+    normalizeAccessLevel,
+} from "@/lib/pontuall-permissions";
 
-export default function AddEmployee(
-    {setUsers}: { setUsers: React.Dispatch<React.SetStateAction<Users | []>> }
-) {
+type WizardStep = "identification" | "access" | "card";
 
-    const [openNewUserModal, setOpenNewUserModal] = useState<boolean>(false)
-    const [cardApproach, setCardApproach] = useState<boolean>(false)
-    const [newUser, setNewUser] = useState({
-        name: "",
-        email: "",
-        role: "",
-        lunch_time: "",
-        phone: ""
-    })
+type AddEmployeeProps = {
+    setUsers: React.Dispatch<React.SetStateAction<Users | []>>;
+    open: boolean;
+    onOpenChange: (open: boolean) => void;
+    defaultLunchTime?: string;
+};
 
-    const [permissionsDropdown, setPermissionsDropdown] = useState<boolean>(false)
-    const [modifiesOthers, setModifiesOthers] = useState<boolean>(false)
-    const [selfDelete, setSelfDelete] = useState<boolean>(false)
-    const [deletesOthers, setDeletesOthers] = useState<boolean>(false)
-    const [editHours, setEditHours] = useState<boolean>(false)
-    const [editPermissions, setEditPermissions] = useState<boolean>(false)
-    const [createReports, setCreateReports] = useState<boolean>(false)
-    const [supervisor, setSupervisor] = useState<boolean>(false)
-    const [administrator, setAdministrator] = useState<boolean>(false)
+const EMPTY_FORM = {
+    name: "",
+    email: "",
+    role: "",
+    lunch_time: "12:00",
+    phone: "",
+};
 
-    const [success, setSuccess] = useState<boolean>(false)
-
-    async function HandleReadCard() {
-        try {
-            if (typeof window !== "undefined") {
-                // This is following the standard I set for my old company's Mifare 1k Classic cards.
-                // Modify this to fit your needs.
-                // If you're not using Mifare 1k Classic cards, you'll need to modify the rust backend to read your card.
-                const blocks = {
-                    "name": 5,
-                    "surname": 6,
-                    "phone": 8,
-                }
-
-                let name = "";
-                let surname = "";
-                let phone = "";
-
-                // Read card using blocks
-                for (const [key, value] of Object.entries(blocks)) {
-                    const data = await TauriApi.ReadCard(value)
-                    switch (key) {
-                        case "name":
-                            // Replace all null bytes, spaces and new lines
-                            const nameData = data.replaceAll(/\0/g, "").replaceAll(/\s/g, "").replaceAll(/\n/g, "")
-                            // Trim the data to 16 bytes max
-                            name = nameData.substring(0, 16)
-                        case "surname":
-                            const surnameData = data.replaceAll(/\0/g, "").replaceAll(/\n/g, "")
-                            surname = surnameData.substring(0, 16)
-                            break;
-                        case "phone":
-                            const phoneData = data.replaceAll(/\0/g, "").replaceAll(/\s/g, "").replaceAll(/\n/g, "")
-                            phone = phoneData.substring(0, 16)
-                            break;
-                    }
-                }
-                // Cut the name and surname to 16 bytes max.
-                // Sorry, most of the time you'll need to adjust this to fit your needs.
-                // Mifare Classic cards only support 16 bytes per block.
-                const nameData = (name + " " + surname).substring(0, 16)
-
-                setNewUser({
-                    name: nameData,
-                    email: "",
-                    role: "",
-                    lunch_time: "",
-                    phone: phone
-                })
-
-            }
-        } catch (e: any) {
-            console.log(e)
-        }
-    }
-
-    async function HandleCloseRead() {
-        try {
-            if (typeof window !== "undefined") {
-                await TauriApi.CloseReader()
-            }
-        } catch (e: any) {
-            console.log(e)
-        }
-    }
-
-    async function HandleAddEmployee(
-        name: string,
-        email: string,
-        role: string,
-        lunch_time: string,
-        phone: string,
-        permissions = {
-            modifiesOthers,
-            selfDelete,
-            deletesOthers,
-            editHours,
-            editPermissions,
-            createReports,
-            supervisor,
-            administrator
-        }
-    ) {
-        try {
-            if (typeof window !== "undefined") {
-                const id = await TauriApi.GenerateUserId()
-                // await TauriApi.WriteCard(5, id)
-
-                const set_permissions = [
-                    {
-                        permission: "ReadSelf",
-                        value: true
-                    },
-                    {
-                        permission: "ReadOthers",
-                        value: true
-                    },
-                    {
-                        permission: "WriteSelf",
-                        value: true
-                    },
-                    {
-                        permission: "WriteOthers",
-                        value: permissions.modifiesOthers
-                    },
-                    {
-                        permission: "DeleteSelf",
-                        value: permissions.selfDelete
-                    },
-                    {
-                        permission: "DeleteOthers",
-                        value: permissions.deletesOthers
-                    },
-                    {
-                        permission: "EditHours",
-                        value: permissions.editHours
-                    },
-                    {
-                        permission: "EditHierarchy",
-                        value: permissions.editPermissions
-                    },
-                    {
-                        permission: "CreateReports",
-                        value: permissions.createReports
-                    },
-                    {
-                        permission: "Supervisor",
-                        value: permissions.supervisor
-                    },
-                    {
-                        permission: "Administrator",
-                        value: permissions.administrator
-                    }
-                ]
-                // Get what permissions are enabled and join their names into a single string
-                const permissions_str = set_permissions
-                    .filter((permission) => permission.value)
-                    .map((permission) => permission.permission)
-                    .join(",")
-
-                const newUser = await TauriApi.InsertNewUser(
-                    id,
-                    name,
-                    email,
-                    role,
-                    lunch_time,
-                    phone,
-                    permissions_str
-                )
-
-                if (newUser) {
-                    await TauriApi.GetCache().then((data) => {
-                        const users = Object.entries(data).map(([key, value]) => {
-                            return {
-                                ...value
-                            }
-                        }) as Users
-                        setUsers(users)
-                    })
-
-                    setCardApproach(true)
-                    const write = await TauriApi.WriteCard(5, id)
-                    if (write) {
-                        setCardApproach(false)
-                        setSuccess(true)
-                    }
-                }
-
-
-            }
-        } catch (e: any) {
-            console.log(e)
-        }
-    }
-
-    useEffect(() => {
-        // Set all other permissions to false
-        if (administrator) {
-            const permissions = [
-                setModifiesOthers,
-                setSelfDelete,
-                setDeletesOthers,
-                setEditHours,
-                setEditPermissions,
-                setCreateReports,
-                setSupervisor
-            ]
-
-            permissions.forEach((permission) => permission(false))
-        } else if (supervisor) {
-            const permissions = [
-                setModifiesOthers,
-                setSelfDelete,
-                setDeletesOthers,
-                setEditHours,
-                setEditPermissions,
-                setCreateReports,
-                setAdministrator
-            ]
-
-            permissions.forEach((permission) => permission(false))
-        }
-    }, [administrator, supervisor])
+function StepIndicator({step}: {step: WizardStep}) {
+    const steps: {id: WizardStep; label: string}[] = [
+        {id: "identification", label: "Dados"},
+        {id: "access", label: "Acesso"},
+        {id: "card", label: "Cartão"},
+    ];
+    const currentIndex = steps.findIndex((s) => s.id === step);
 
     return (
-        <Dialog open={openNewUserModal}>
-            <DialogTrigger asChild>
-                <Button
-                    variant={"secondary"}
-                    onClick={() => setOpenNewUserModal(!openNewUserModal)}
-                >Adicionar Funcionário</Button>
-            </DialogTrigger>
-            <DialogContent className={"no-close"}>
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            {steps.map((s, index) => (
+                <React.Fragment key={s.id}>
+                    <span
+                        className={
+                            index <= currentIndex
+                                ? "font-medium text-foreground"
+                                : undefined
+                        }
+                    >
+                        {index + 1}. {s.label}
+                    </span>
+                    {index < steps.length - 1 && <span aria-hidden>→</span>}
+                </React.Fragment>
+            ))}
+        </div>
+    );
+}
+
+export default function AddEmployee({
+    setUsers,
+    open,
+    onOpenChange,
+    defaultLunchTime = "12:00",
+}: AddEmployeeProps) {
+    const [step, setStep] = useState<WizardStep>("identification");
+    const [createdEmployeeId, setCreatedEmployeeId] = useState<string | null>(null);
+    const [createdEmployeeName, setCreatedEmployeeName] = useState("");
+    const [cardProvisioning, setCardProvisioning] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [optionalOpen, setOptionalOpen] = useState(false);
+    const [form, setForm] = useState({...EMPTY_FORM, lunch_time: defaultLunchTime});
+    const [accessLevel, setAccessLevel] = useState<PontuallAccessLevel>("employee");
+    const [smtpConfigured, setSmtpConfigured] = useState(false);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+        if (open) {
+            setForm({...EMPTY_FORM, lunch_time: defaultLunchTime});
+            TauriApi.GetSmtpConfig()
+                .then((config) => setSmtpConfigured(Boolean(config?.configured)))
+                .catch(() => setSmtpConfigured(false));
+        }
+    }, [open, defaultLunchTime]);
+
+    function resetWizard() {
+        setStep("identification");
+        setCreatedEmployeeId(null);
+        setCreatedEmployeeName("");
+        setCardProvisioning(false);
+        setSubmitting(false);
+        setOptionalOpen(false);
+        setForm({...EMPTY_FORM, lunch_time: defaultLunchTime});
+        setAccessLevel("employee");
+        setError("");
+    }
+
+    function handleClose() {
+        if (cardProvisioning) {
+            void TauriApi.CancelCard().catch(() => undefined);
+        }
+        resetWizard();
+        onOpenChange(false);
+    }
+
+    async function refreshUsers() {
+        const data = await TauriApi.GetCache();
+        const nextUsers = Object.values(data) as Users;
+        setUsers(nextUsers);
+    }
+
+    async function handleRegister() {
+        setError("");
+        setSubmitting(true);
+        try {
+            const id = await TauriApi.GenerateUserId();
+
+            const inserted = await TauriApi.InsertNewUser(
+                id,
+                form.name.trim(),
+                form.email.trim(),
+                form.role.trim(),
+                form.lunch_time || defaultLunchTime,
+                form.phone.trim() || "",
+            );
+
+            if (!inserted) {
+                throw new Error("Não foi possível cadastrar o funcionário.");
+            }
+
+            if (smtpConfigured) {
+                await TauriApi.CreateAccount(
+                    id,
+                    form.email.trim(),
+                    accessLevel,
+                );
+            }
+
+            await refreshUsers();
+            setCreatedEmployeeId(id);
+            setCreatedEmployeeName(form.name.trim());
+            setStep("card");
+            toast.success(`${form.name.trim()} cadastrado`, {
+                description: smtpConfigured
+                    ? "Link para definir a senha enviado por e-mail. Próximo passo: vincular o cartão NFC (opcional)."
+                    : "Próximo passo: vincular o cartão NFC (opcional).",
+            });
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : "Erro ao cadastrar funcionário.";
+            setError(message);
+        } finally {
+            setSubmitting(false);
+        }
+    }
+
+    async function handleProvisionCard() {
+        if (!createdEmployeeId) return;
+        setError("");
+        setCardProvisioning(true);
+        try {
+            await TauriApi.ProvisionCard(createdEmployeeId);
+            toast.success("Cartão vinculado", {
+                description: `${createdEmployeeName} já pode bater ponto com o cartão.`,
+            });
+            handleClose();
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : "Não foi possível provisionar o cartão.";
+            setError(message);
+        } finally {
+            setCardProvisioning(false);
+        }
+    }
+
+    function handleSkipCard() {
+        toast.message("Cadastro concluído", {
+            description: "Você pode vincular um cartão depois, na ficha do funcionário.",
+        });
+        handleClose();
+    }
+
+    const identificationValid =
+        form.name.trim().length > 0 &&
+        form.email.trim().length > 0 &&
+        form.role.trim().length > 0;
+
+
+    return (
+        <Dialog
+            open={open}
+            onOpenChange={(nextOpen) => {
+                if (!nextOpen) {
+                    handleClose();
+                    return;
+                }
+                onOpenChange(true);
+            }}
+        >
+            <DialogContent className="sm:max-w-md">
                 <DialogHeader>
-                    <DialogTitle>
-                        Adicionar Funcionário
-                    </DialogTitle>
+                    <DialogTitle>Novo funcionário</DialogTitle>
                     <DialogDescription>
-                        Insira ou aproxime o cartão para importar os dados.
+                        {step === "identification" &&
+                            "Comece pelos dados essenciais. Detalhes extras ficam opcionais."}
+                        {step === "access" &&
+                            "Defina o nível de acesso. A senha é criada pelo próprio funcionário via link enviado por e-mail."}
+                        {step === "card" &&
+                            "Cadastro concluído. Vincule um cartão agora ou faça isso depois."}
                     </DialogDescription>
                 </DialogHeader>
-                <div className={"grid gap-4"}>
-                    {cardApproach && (
-                        <>
-                            <div className="flex flex-col items-center justify-center py-8">
-                                Aproxime o cartão do leitor.
-                                <SpinnerIcon className={"w-16 h-16 animate-spin mt-2"}/>
+
+                <StepIndicator step={step}/>
+
+                {error && <p className="text-sm text-destructive">{error}</p>}
+
+                {step === "identification" && (
+                    <div className="grid gap-4">
+                        <div className="grid gap-2">
+                            <Label htmlFor="new-employee-name">Nome</Label>
+                            <Input
+                                id="new-employee-name"
+                                value={form.name}
+                                maxLength={24}
+                                placeholder="Ex.: Maria Silva"
+                                onChange={(e) => setForm({...form, name: e.target.value})}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="new-employee-email">E-mail</Label>
+                            <Input
+                                id="new-employee-email"
+                                type="email"
+                                value={form.email}
+                                placeholder="Usado no login e comunicações"
+                                onChange={(e) => setForm({...form, email: e.target.value})}
+                            />
+                        </div>
+                        <div className="grid gap-2">
+                            <Label htmlFor="new-employee-role">Cargo</Label>
+                            <Input
+                                id="new-employee-role"
+                                value={form.role}
+                                placeholder="Ex.: Operador de caixa"
+                                onChange={(e) => setForm({...form, role: e.target.value})}
+                            />
+                        </div>
+                        <Collapsible open={optionalOpen} onOpenChange={setOptionalOpen}>
+                            <CollapsibleTrigger asChild>
+                                <Button variant="ghost" size="sm" className="w-fit gap-1 px-0">
+                                    Campos opcionais
+                                    <ChevronDown
+                                        className={`h-4 w-4 transition-transform ${optionalOpen ? "rotate-180" : ""}`}
+                                    />
+                                </Button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent className="grid gap-4 pt-2">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="new-employee-lunch">Horário de almoço</Label>
+                                    <Input
+                                        id="new-employee-lunch"
+                                        type="time"
+                                        value={form.lunch_time}
+                                        onChange={(e) => setForm({...form, lunch_time: e.target.value})}
+                                    />
+                                </div>
+                                <div className="grid gap-2">
+                                    <Label htmlFor="new-employee-phone">Celular</Label>
+                                    <Input
+                                        id="new-employee-phone"
+                                        type="tel"
+                                        value={form.phone}
+                                        placeholder="Para contato ou validação de ponto"
+                                        onChange={(e) => setForm({...form, phone: e.target.value})}
+                                    />
+                                </div>
+                            </CollapsibleContent>
+                        </Collapsible>
+                    </div>
+                )}
+
+                {step === "access" && (
+                    <div className="grid gap-4">
+                        <div className="rounded-lg border bg-muted/40 px-3 py-2 text-sm">
+                            <p className="font-medium">{form.name}</p>
+                            <p className="text-muted-foreground">{form.email} · {form.role}</p>
+                        </div>
+                        {smtpConfigured ? (
+                            <p className="text-sm text-muted-foreground">
+                                A senha será definida pelo próprio funcionário: um link de uso
+                                único será enviado para <strong>{form.email}</strong>.
+                            </p>
+                        ) : (
+                            <p className="text-sm text-destructive">
+                                Servidor de e-mail (SMTP) não configurado — o funcionário será
+                                cadastrado sem conta de acesso. Configure o SMTP em Configurações
+                                e ative o login depois, na aba Logins.
+                            </p>
+                        )}
+                        {smtpConfigured && (
+                            <div className="grid gap-2">
+                                <Label htmlFor="new-employee-access-level">Nível de acesso</Label>
+                                <select
+                                    id="new-employee-access-level"
+                                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                                    value={accessLevel}
+                                    onChange={(e) =>
+                                        setAccessLevel(e.target.value as PontuallAccessLevel)
+                                    }
+                                >
+                                    {(Object.keys(ACCESS_LEVEL_LABELS) as PontuallAccessLevel[]).map(
+                                        (level) => (
+                                            <option key={level} value={level}>
+                                                {ACCESS_LEVEL_LABELS[level]}
+                                            </option>
+                                        )
+                                    )}
+                                </select>
+                                <p className="text-xs text-muted-foreground">
+                                    Padrão: funcionário — altere apenas se precisar de supervisão ou
+                                    administração.
+                                </p>
                             </div>
+                        )}
+                    </div>
+                )}
+
+                {step === "card" && (
+                    <div className="flex flex-col items-center gap-4 py-4 text-center">
+                        {cardProvisioning ? (
+                            <>
+                                <p className="text-sm">
+                                    Aproxime um cartão em branco do leitor para vincular a{" "}
+                                    <strong>{createdEmployeeName}</strong>.
+                                </p>
+                                <SpinnerIcon className="h-16 w-16 animate-spin"/>
+                            </>
+                        ) : (
+                            <>
+                                <SuccessCircle className="h-12 w-12 text-green-600 dark:text-green-500"/>
+                                <p className="text-sm text-muted-foreground max-w-sm">
+                                    <strong>{createdEmployeeName}</strong> já está no sistema. O
+                                    cartão NFC acelera o ponto no terminal — mas pode ser
+                                    configurado depois.
+                                </p>
+                            </>
+                        )}
+                    </div>
+                )}
+
+                <DialogFooter className="gap-2 sm:gap-0">
+                    {step === "identification" && (
+                        <>
+                            <Button variant="outline" onClick={handleClose}>
+                                Cancelar
+                            </Button>
+                            <Button
+                                disabled={!identificationValid}
+                                onClick={() => {
+                                    setError("");
+                                    setStep("access");
+                                }}
+                            >
+                                Continuar
+                            </Button>
                         </>
                     )}
-                    <Label htmlFor={"name"}>
-                        Nome
-                    </Label>
-                    <Input
-                        id={"name"} type={"text"} placeholder={"Nome do Funcionário"}
-                        value={newUser.name}
-                        max={24}
-                        onChange={(e) => {
-                            if (e.target.value.length > 24) return;
-                            setNewUser({...newUser, name: e.target.value})
-                        }}
-                    />
-                    <Label htmlFor={"email"}>
-                        E-mail
-                    </Label>
-                    <Input id={"email"} type={"email"}
-                           value={newUser.email}
-                           placeholder={"E-mail do Funcionário"}
-                           onChange={(e) => setNewUser({...newUser, email: e.target.value})}
-                    />
-                    <Label htmlFor={"role"}>
-                        Cargo
-                    </Label>
-                    <Input
-                        id={"role"} type={"text"} placeholder={"Cargo do Funcionário"}
-                        value={newUser.role}
-                        onChange={(e) => setNewUser({...newUser, role: e.target.value})}
-                    />
-                    <Label htmlFor={"lunch_time"}>
-                        Horário de Almoço
-                    </Label>
-                    <Input
-                        id={"lunch_time"} type={"time"}
-                        value={newUser.lunch_time}
-                        onChange={(e) => setNewUser({...newUser, lunch_time: e.target.value})}
-                    />
-                    <Label htmlFor={"phone"}>
-                        Número de Celular
-                    </Label>
-                    <Input
-                        id={"phone"} type={"number"}
-                        value={newUser.phone}
-                        placeholder={"Número de Celular"}
-                        onChange={(e) => setNewUser({...newUser, phone: e.target.value})}
-                    />
-                    <Label htmlFor={"permissions"}>
-                        Permissões do Funcionário
-                    </Label>
-                    <DropdownMenu
-                        open={permissionsDropdown}
-                        onOpenChange={() => setPermissionsDropdown(!permissionsDropdown)}
-                    >
-                        <DropdownMenuTrigger asChild>
+                    {step === "access" && (
+                        <>
                             <Button
-                                variant={"outline"} className="flex items-center gap-2 w-fit min-w-[250px]"
+                                variant="outline"
+                                onClick={() => setStep("identification")}
+                                disabled={submitting}
                             >
-                                <span>Selecione as Permissões</span>
-                                <ChevronDownIcon className="h-4 w-4"/>
+                                Voltar
                             </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent
-                            className="w-[250px] p-2"
-                            onCloseAutoFocus={(event) => event.preventDefault()}
+                            <Button
+                                disabled={submitting}
+                                onClick={() => void handleRegister()}
+                            >
+                                {submitting ? "Cadastrando…" : "Cadastrar funcionário"}
+                            </Button>
+                        </>
+                    )}
+                    {step === "card" && !cardProvisioning && (
+                        <>
+                            <Button variant="outline" onClick={handleSkipCard}>
+                                Concluir sem cartão
+                            </Button>
+                            <Button onClick={() => void handleProvisionCard()}>
+                                Vincular cartão agora
+                            </Button>
+                        </>
+                    )}
+                    {step === "card" && cardProvisioning && (
+                        <Button
+                            variant="outline"
+                            onClick={() => {
+                                void TauriApi.CancelCard().catch(() => undefined);
+                                setCardProvisioning(false);
+                            }}
                         >
-                            {
-                                [
-                                    {
-                                        name: "Modifica Outros",
-                                        state: modifiesOthers,
-                                        setState: setModifiesOthers
-                                    },
-                                    {
-                                        name: "Deleta Próprio",
-                                        state: selfDelete,
-                                        setState: setSelfDelete
-                                    },
-                                    {
-                                        name: "Deleta Outros",
-                                        state: deletesOthers,
-                                        setState: setDeletesOthers
-                                    },
-                                    {
-                                        name: "Edita Horas",
-                                        state: editHours,
-                                        setState: setEditHours
-                                    },
-                                    {
-                                        name: "Edita Permissões",
-                                        state: editPermissions,
-                                        setState: setEditPermissions
-                                    },
-                                    {
-                                        name: "Cria Relatórios",
-                                        state: createReports,
-                                        setState: setCreateReports
-                                    },
-                                    {
-                                        name: "Supervisor",
-                                        state: supervisor,
-                                        setState: setSupervisor
-                                    },
-                                    {
-                                        name: "Administrador",
-                                        state: administrator,
-                                        setState: setAdministrator
-                                    }
-                                ].map((permission) => (
-                                    <DropdownMenuCheckboxItem
-                                        key={permission.name}
-                                        className={"gap-2"}
-                                        onSelect={(event) => event.preventDefault()}
-                                        disabled=
-                                            {
-                                                administrator && permission.name !== "Administrador" ||
-                                                supervisor && permission.name !== "Supervisor"
-                                            }
-                                    >
-                                        <Checkbox
-                                            checked={permission.state}
-                                            onCheckedChange={() => permission.setState(!permission.state)}
-                                        />
-                                        <span>{permission.name}</span>
-                                    </DropdownMenuCheckboxItem>
-                                ))
-                            }
-                        </DropdownMenuContent>
-                    </DropdownMenu>
-                </div>
-                {
-                    success && (
-                        <div className={"flex flex-row justify-center items-center"}>
-                            <SuccessCircle className={"w-8 h-8"}/>
-                            <p className={"text-green-500"}>Funcionário Adicionado com Sucesso!</p>
-                        </div>
-                    )
-                }
-                <div className={"flex flex-row justify-evenly"}>
-                    <Button
-                        variant={"default"}
-                        disabled={
-                            !newUser.name ||
-                            !newUser.email ||
-                            !newUser.role ||
-                            !newUser.lunch_time ||
-                            !newUser.phone
-                        }
-                        onClick={() => {
-                            HandleAddEmployee(
-                                newUser.name,
-                                newUser.email,
-                                newUser.role,
-                                newUser.lunch_time,
-                                newUser.phone
-                            ).then(() => {
-                                console.log("Ok")
-                            })
-                        }}
-                    >Adicionar</Button>
-                    <Button
-                        variant={"secondary"}
-                        onClick={() => {
-                            setCardApproach(true)
-                            HandleReadCard().then(() => {
-                                setCardApproach(false)
-                            })
-                        }}
-                    >Importar</Button>
-                    <Button
-                        variant={"destructive"}
-                        onClick={() => {
-                            if (cardApproach) {
-                                HandleCloseRead()
-                                setCardApproach(false)
-                            }
-                            setNewUser({
-                                name: "",
-                                email: "",
-                                role: "",
-                                lunch_time: "",
-                                phone: ""
-                            })
-                            setOpenNewUserModal(!openNewUserModal)
-                        }}
-                    >
-                        Cancelar
-                    </Button>
-                </div>
+                            Cancelar leitura
+                        </Button>
+                    )}
+                </DialogFooter>
             </DialogContent>
         </Dialog>
-    )
+    );
+}
+
+export function AddEmployeeTrigger({
+    onClick,
+    label = "Adicionar funcionário",
+    size = "default",
+}: {
+    onClick: () => void;
+    label?: string;
+    size?: "default" | "sm" | "lg";
+}) {
+    return (
+        <Button variant="secondary" size={size} onClick={onClick} className="gap-2">
+            <UserPlus className="h-4 w-4"/>
+            {label}
+        </Button>
+    );
 }

@@ -1,8 +1,9 @@
-import Label from "@/components/ui/label";
-import {Tooltip, TooltipArrow, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
-import Input from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
+import { Input } from "@/components/ui/input";
 import {Button} from "@/components/ui/button";
 import React from "react";
+import SetupStepHeader from "@/components/splashscreen/SetupStepHeader";
 
 type HoursSetupProps = {
     horarioEntrada: string,
@@ -30,17 +31,12 @@ export default function HoursSetup(
     }: HoursSetupProps
 ) {
     return (
-        <div className="mt-8 space-y-6">
-            <div className="text-center">
-                <h2 className="text-2xl font-bold tracking-tight text-foreground">
-                    Configuração de Horários
-                </h2>
-                <p className="mt-2 text-muted-foreground">
-                    Os horários de entrada e saída são necessários para o
-                    funcionamento do aplicativo.
-                </p>
-            </div>
-            <div className="flex flex-col gap-4">
+        <>
+            <SetupStepHeader
+                title="Horários de trabalho"
+                description="Defina a jornada padrão da equipe. Esses horários são usados para validar entradas, saídas e intervalos."
+            />
+            <div className="flex flex-col gap-5">
                 <div className={"grid gap-2"}>
                     <Label htmlFor={"horarioEntrada"}>
                         Horário de Entrada
@@ -52,7 +48,7 @@ export default function HoursSetup(
                                     id={"horarioEntrada"}
                                     type={"time"}
                                     placeholder={"00:00:00"}
-                                    value={horarioEntrada}
+                                    value={horarioEntrada.slice(0, 5)}
                                     onChange={(e) => setHorarioEntrada(e.target.value + ":00")}
                                 />
                             </TooltipTrigger>
@@ -60,7 +56,6 @@ export default function HoursSetup(
                                 className={"text-center text-clip max-w-[500px]"}>
                                 O horário de entrada é o horário em que os funcionários
                                 devem bater o ponto.
-                                <TooltipArrow className={"TooltipArrow"}/>
                             </TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
@@ -87,7 +82,6 @@ export default function HoursSetup(
                                 funcionário
                                 pode atrasar sem ser penalizado. Normalmente o máximo
                                 tolerado é de 10 minutos.
-                                <TooltipArrow className={"TooltipArrow"}/>
                             </TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
@@ -103,7 +97,7 @@ export default function HoursSetup(
                                     id={"horarioSaida"}
                                     type={"time"}
                                     placeholder={"00:00:00"}
-                                    value={horarioSaida}
+                                    value={horarioSaida.slice(0, 5)}
                                     onChange={(e) => setHorarioSaida(e.target.value + ":00")}
                                 />
                             </TooltipTrigger>
@@ -112,7 +106,6 @@ export default function HoursSetup(
                                 O horário de saída é o horário em que os funcionários
                                 devem bater o ponto quando a jornada de trabalho
                                 termina.
-                                <TooltipArrow className={"TooltipArrow"}/>
                             </TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
@@ -128,10 +121,9 @@ export default function HoursSetup(
                                     id={"horarioSaidaFDS"}
                                     type={"time"}
                                     placeholder={"00:00:00"}
-                                    value={horarioSaidaFDS}
+                                    value={horarioSaidaFDS ? horarioSaidaFDS.slice(0, 5) : ""}
                                     onChange={(e) => {
-                                        // Prefix a: 00 to the time
-                                        setHorarioSaidaFDS(e.target.value + ":00")
+                                        setHorarioSaidaFDS(e.target.value ? e.target.value + ":00" : "")
                                     }}
                                 />
                             </TooltipTrigger>
@@ -139,20 +131,17 @@ export default function HoursSetup(
                                 className={"text-center text-clip max-w-[500px]"}>
                                 Este horário é opcional, caso não seja preenchido, o
                                 horário de saída padrão será utilizado.
-                                <TooltipArrow className={"TooltipArrow"}/>
                             </TooltipContent>
                         </Tooltip>
                     </TooltipProvider>
                 </div>
-                <div className="flex gap-4 items-center">
-                    <Button onClick={() => setSetupStep(1)}>Voltar</Button>
-                    <Button onClick={() => {
-                        setSetupStep(2)
-                    }} disabled={
+                <div className="flex gap-3 pt-2">
+                    <Button variant="outline" onClick={() => setSetupStep(0)}>Voltar</Button>
+                    <Button className="min-w-32" onClick={() => setSetupStep(2)} disabled={
                         horarioEntrada === "" || minutosTolerancia === 0 || horarioSaida === ""
                     }>Continuar</Button>
                 </div>
             </div>
-        </div>
+        </>
     )
 }

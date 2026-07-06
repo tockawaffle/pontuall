@@ -6,31 +6,41 @@ export default class TauriApi {
      * ------------------------------------------------------------------------------------------
      */
 
-    public static async Connect() {
-        const {reader} = await this.command("connect_reader", {}) as {
-            reader: string
-        }
-        return reader;
+    public static async ReaderStatus(): Promise<{ connected: boolean, name: string | null }> {
+        return this.command("reader_status", {});
     }
 
-    public static async ReadCard(blockNumber: number): Promise<string> {
-        return this.command<string>("read_card", {blockNumber});
+    public static async AwaitTap(): Promise<CardTapResult> {
+        return this.command<CardTapResult>("card_await_tap", {});
     }
 
-    public static async CloseReader(): Promise<void> {
-        return this.command<void>("cancel_read", {});
-    }
-
-    public static async GetReaderConnection() {
-        return this.command<string>("get_connection", {});
+    public static async CancelCard(): Promise<void> {
+        return this.command<void>("card_cancel", {});
     }
 
     public static async GenerateUserId(): Promise<string> {
         return this.command<string>("gen_id", {});
     }
 
-    public static async WriteCard(blockNumber: number, data: string): Promise<boolean> {
-        return this.command<boolean>("write_card", {blockNumber, data});
+    public static async ProvisionCard(employeeId: string): Promise<CardInfo> {
+        return this.command<CardInfo>("provision_card", {employeeId});
+    }
+
+    /** Provisions a replacement card and blocks the employee's previous cards. */
+    public static async ReprovisionCard(employeeId: string): Promise<CardInfo> {
+        return this.command<CardInfo>("reprovision_card", {employeeId});
+    }
+
+    public static async UnprovisionCard(cardId: string): Promise<void> {
+        return this.command<void>("unprovision_card", {cardId});
+    }
+
+    public static async SetCardStatus(cardId: string, status: string): Promise<void> {
+        return this.command<void>("set_card_status", {cardId, status});
+    }
+
+    public static async CardDiagnostic(): Promise<{ uid: string, magic_ok: boolean, authenticated: boolean }> {
+        return this.command("card_diagnostic", {});
     }
 
     public static async InsertNewUser(
@@ -40,7 +50,6 @@ export default class TauriApi {
         role: string,
         lunch_time: string,
         phone: string,
-        permissions_str: string,
     ) {
         return this.command<boolean>("insert_new_user", {
             id,
@@ -48,8 +57,27 @@ export default class TauriApi {
             email,
             role,
             lunchTime: lunch_time,
-            permissionsStr: permissions_str,
             phone
+        });
+    }
+
+    public static async UpdateEmployee(
+        employeeId: string,
+        name: string,
+        email: string,
+        role: string,
+        lunchTime: string,
+        phone: string,
+        accessLevel: "employee" | "supervisor" | "administrator",
+    ) {
+        return this.command<boolean>("update_employee", {
+            employeeId,
+            name,
+            email: email.trim() === "" ? null : email,
+            role,
+            lunchTime: lunchTime.trim() === "" ? null : lunchTime,
+            phone: phone.trim() === "" ? null : phone,
+            accessLevel,
         });
     }
 
@@ -58,13 +86,19 @@ export default class TauriApi {
         day: string,
         keyToUpdate: "ClockIn" | "ClockLunchOut" | "ClockLunchReturn" | "ClockOut",
         value: string,
+        punchSource: "card" | "manual_otp" = "card",
     ) {
         return this.command<boolean>("update_cache_hour_data", {
             id,
             day,
             keyToUpdate,
-            value
+            value,
+            punchSource,
         });
+    }
+
+    public static async DeleteTimeEntryDay(employeeId: string, day: string) {
+        return this.command<boolean>("delete_time_entry_day", {employeeId, day});
     }
 
     public static async UpdateCache() {
@@ -76,61 +110,198 @@ export default class TauriApi {
         password: string,
     ) {
         try {
-            const {user, token, message, code} = await this.command<{
-                user: InternalUser,
-                token: string,
-                message: string,
-                code: string
-            }>("user_login", {
+            const user = await this.command<UserLogged>("auth_sign_in", {
                 email,
                 password
             });
 
-            const userLogged: UserLogged = {
-                id: user.id,
-                name: user.worker_data.name,
-                image: user.worker_data.name,
-                role: user.worker_data.role,
-                permissions: user.worker_data.permissions.flags
-            }
-
-            return {userLogged, token, message, code};
+            return {userLogged: user, message: "", code: "ok"};
         } catch (e: any) {
             return {
-                userLogged: {},
-                token: "",
-                message: e
+                userLogged: {} as Record<string, never>,
+                message: e?.message ?? String(e),
+                code: e?.code ?? "error"
             }
         }
     }
 
-    public static async VerifyToken(token: string) {
-        return this.command<InternalUser>("verify", {token});
+    /** Restores the user for the backend-held session, or throws if none. */
+    public static async RestoreSession() {
+        return this.command<UserLogged>("auth_current_user", {});
     }
 
-    public static async CheckPermissions(
-        userLogged: UserLogged,
-        actions: AppPermissions[]
-    ) {
-        if (!userLogged || Object.keys(userLogged).length === 0) return false;
+    public static async SignOut() {
+        return this.command<void>("auth_sign_out", {});
+    }
 
-        let frontendCheck = false;
-        actions.forEach((action) => {
-            // @ts-ignore
-            if (userLogged.permissions.includes(action)) {
-                frontendCheck = true;
-            }
+    public static async ChangePassword(currentPassword: string, newPassword: string) {
+        return this.command<void>("auth_change_password", {
+            currentPassword,
+            newPassword
         });
+    }
 
-        const backendChecks = await Promise.all(actions.map(async (action) => {
-            // @ts-ignore
-            return await TauriApi.VerifyPermissions(userLogged.id, action);
-        }));
+    public static async HasAdmin() {
+        return this.command<boolean>("auth_has_admin", {});
+    }
 
-        // Determine if any backend check returned true
-        let backendCheck = backendChecks.some(check => check);
+    public static async BootstrapAdmin(name: string, email: string, password: string, role: string) {
+        return this.command<UserLogged>("auth_bootstrap_admin", {name, email, password, role});
+    }
 
-        return frontendCheck && backendCheck;
+    /** Creates the account and e-mails the employee a link to set their own password. */
+    public static async CreateAccount(
+        employeeId: string,
+        email: string,
+        accessLevel: "employee" | "supervisor" | "administrator" = "employee",
+    ) {
+        return this.command<void>("auth_create_account", {
+            employeeId,
+            email,
+            accessLevel,
+        });
+    }
+
+    public static async ListAuthUsers(limit = 100, offset = 0) {
+        return this.command<AuthUserListResult>("auth_admin_list_users", {
+            limit,
+            offset
+        });
+    }
+
+    /** E-mails the account holder a one-time link to redefine their password. */
+    public static async SendPasswordReset(email: string) {
+        return this.command<void>("auth_admin_send_password_reset", {
+            email
+        });
+    }
+
+    public static async SetAuthUserRole(userId: string, role: "employee" | "supervisor" | "administrator") {
+        return this.command<void>("auth_admin_set_role", {
+            userId,
+            role
+        });
+    }
+
+    public static async BanAuthUser(userId: string, reason?: string) {
+        return this.command<void>("auth_admin_ban_user", {
+            userId,
+            reason
+        });
+    }
+
+    public static async UnbanAuthUser(userId: string) {
+        return this.command<void>("auth_admin_unban_user", {
+            userId
+        });
+    }
+
+    public static async RemoveAuthUser(userId: string) {
+        return this.command<void>("auth_admin_remove_user", {
+            userId
+        });
+    }
+
+    public static async ListAuditLog(limit = 50, offset = 0) {
+        return this.command<AuditListResult>("auth_audit_list", {
+            limit,
+            offset
+        });
+    }
+
+    public static async VerifyAuditLog() {
+        return this.command<AuditVerifyResult>("auth_audit_verify", {});
+    }
+
+    public static async GetManualPunchStatus() {
+        return this.command<{
+            enabled: boolean;
+            smtpConfigured: boolean;
+            available: boolean;
+        }>("get_manual_punch_status", {});
+    }
+
+    public static async SetManualPunchEnabled(enabled: boolean) {
+        return this.command<boolean>("set_manual_punch_enabled_cmd", {
+            enabled,
+        });
+    }
+
+    public static async GetSmtpConfig() {
+        return this.command<{
+            host: string;
+            port: number;
+            secure: boolean;
+            user: string;
+            from: string;
+            configured: boolean;
+        } | null>("get_smtp_config_cmd", {});
+    }
+
+    public static async SetSmtpConfig(
+        config: {
+            host: string;
+            port: number;
+            secure: boolean;
+            user: string;
+            pass: string;
+            from: string;
+        },
+    ) {
+        return this.command<boolean>("set_smtp_config_cmd", {
+            ...config,
+        });
+    }
+
+    public static async TestSmtpConfig(to: string) {
+        return this.command<boolean>("test_smtp_config_cmd", {to});
+    }
+
+    public static async GetAdvancedConfig() {
+        return this.command<{
+            port: number;
+            publicUrl: string;
+        }>("get_advanced_config_cmd", {});
+    }
+
+    public static async SetAdvancedConfig(port: number, publicUrl: string) {
+        return this.command<boolean>("set_advanced_config_cmd", {
+            port,
+            publicUrl,
+        });
+    }
+
+    public static async RequestPunchOtp(email: string) {
+        return this.command<boolean>("request_punch_otp", {email});
+    }
+
+    public static async VerifyPunchOtp(email: string, code: string) {
+        return this.command<string>("verify_punch_otp", {email, code});
+    }
+
+    public static async StartBackendServices() {
+        return this.command<void>("start_backend_services", {});
+    }
+
+    public static async GetSessionCapabilities(): Promise<SessionCapabilities> {
+        return this.command<SessionCapabilities>("auth_session_capabilities", {});
+    }
+
+    public static async SessionHasPermission(
+        permissions: Record<string, string[]>
+    ): Promise<boolean> {
+        return this.command<boolean>("auth_session_has_permission", {
+            permissions,
+        });
+    }
+
+    public static async CanAccessAdmin(): Promise<boolean> {
+        try {
+            const caps = await this.GetSessionCapabilities();
+            return caps.hierarchyManage || caps.punchWriteOthers;
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -146,7 +317,14 @@ export default class TauriApi {
         tolerance: string
     ) {
         const users = await this.GetCache();
-        return this.command<void>("create_excel_relatory", {dateStart, dateEnd, entryTime, exitTime, tolerance, users});
+        return this.command<void>("create_excel_relatory", {
+            dateStart,
+            dateEnd,
+            entryTime,
+            exitTime,
+            tolerance,
+            users
+        });
     }
 
     /**
@@ -190,7 +368,11 @@ export default class TauriApi {
     }
 
     public static async SetupDatabase(appName: string, uri?: string) {
-        return this.command<boolean>("insert_uri", {uri, appName});
+        return this.command<boolean>("insert_db_config", {uri, appName});
+    }
+
+    public static async TestDatabase(uri: string) {
+        return this.command<void>("test_db_connection", {uri});
     }
 
     // Event listener for each window
@@ -202,9 +384,5 @@ export default class TauriApi {
     private static async command<T>(command: string, args: any): Promise<T> {
         const {invoke} = await import('@tauri-apps/api/core');
         return invoke(command, args);
-    }
-
-    private static async VerifyPermissions(id: string, action: string) {
-        return this.command<boolean>("check_permission", {id, action})
     }
 }

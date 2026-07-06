@@ -22,11 +22,12 @@ function handleSkipValidation(
         release?: string
     }>>,
     users: Users,
-    setUsers: React.Dispatch<React.SetStateAction<Users>>
+    setUsers: React.Dispatch<React.SetStateAction<Users>>,
+    punchSource: "card" | "manual_otp" = "card",
 ): void {
-    TauriApi.UpdateUser(user.id, time.date, skipValidation.type, time.hour).then((bool) => {
+    TauriApi.UpdateUser(user.id, time.date, skipValidation.type, time.hour, punchSource).then((bool) => {
         if (bool) {
-            updateUserHourData(user, time, check, skipValidation.type, setMessageDialogOpen, setDialogMessage, users, setUsers);
+            updateUserHourData(user, time, check, skipValidation.type, setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
             displaySuccessMessage(skipValidation.type, user, setDialogMessage, setMessageDialogOpen);
         }
     }).catch((e) => {
@@ -56,7 +57,8 @@ function handleRegularDayLogic(
         release?: string
     }>>,
     users: Users,
-    setUsers: React.Dispatch<React.SetStateAction<Users>>
+    setUsers: React.Dispatch<React.SetStateAction<Users>>,
+    punchSource: "card" | "manual_otp" = "card",
 ): void {
     if (!HorarioEntrada || !MinutosTolerancia || !HorarioSaida) {
         alert("Você não configurou o horário de entrada e a tolerância de minutos.");
@@ -70,10 +72,10 @@ function handleRegularDayLogic(
     }
 
     if (!check) {
-        updateUserHourData(user, time, {}, "ClockIn", setMessageDialogOpen, setDialogMessage, users, setUsers);
+        updateUserHourData(user, time, {}, "ClockIn", setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
         return
     } else if (Object.keys(check).length < 0) {
-        updateUserHourData(user, time, check, "ClockIn", setMessageDialogOpen, setDialogMessage, users, setUsers);
+        updateUserHourData(user, time, check, "ClockIn", setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
         return;
     }
 
@@ -97,7 +99,7 @@ function handleRegularDayLogic(
                 return;
             }
 
-            updateUserHourData(user, time, check, "ClockIn", setMessageDialogOpen, setDialogMessage, users, setUsers);
+            updateUserHourData(user, time, check, "ClockIn", setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
             break;
         }
         case !checkValue(check, "lunch_break_out"): {
@@ -136,7 +138,7 @@ function handleRegularDayLogic(
                 return;
             }
 
-            updateUserHourData(user, time, check, "ClockLunchOut", setMessageDialogOpen, setDialogMessage, users, setUsers);
+            updateUserHourData(user, time, check, "ClockLunchOut", setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
             break;
         }
         case !checkValue(check, "lunch_break_return"): {
@@ -179,7 +181,7 @@ function handleRegularDayLogic(
             }
 
             // Proceed with updating user hour data if it's time or if the user wants to skip the validation
-            updateUserHourData(user, time, check, "ClockLunchReturn", setMessageDialogOpen, setDialogMessage, users, setUsers);
+            updateUserHourData(user, time, check, "ClockLunchReturn", setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
             return;
         }
         case !checkValue(check, "clocked_out"): {
@@ -206,7 +208,7 @@ function handleRegularDayLogic(
                 return;
             }
 
-            updateUserHourData(user, time, check, "ClockOut", setMessageDialogOpen, setDialogMessage, users, setUsers);
+            updateUserHourData(user, time, check, "ClockOut", setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
             return;
         }
         default: {
@@ -234,6 +236,13 @@ function getLocalStorageValues(): {
     };
 }
 
+function getGreetingForTime(): string {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Bom dia";
+    if (hour < 18) return "Boa tarde";
+    return "Boa noite";
+}
+
 function displaySuccessMessage(
     type: "ClockLunchOut" | "ClockLunchReturn" | "ClockOut" | "ClockIn",
     user: IUsers,
@@ -250,26 +259,28 @@ function displaySuccessMessage(
     let dialog_type = "";
     let sub_message: string[] = [];
 
+    const greeting = getGreetingForTime();
+
     switch (type) {
         case "ClockIn":
             dialog_type = "success";
-            message = "Ponto de entrada registrado com sucesso.";
-            sub_message = [`Olá, ${user.name}!`, `Bom dia! Seu ponto de entrada foi registrado com sucesso.`, `Bom trabalho!`];
+            message = "Entrada registrada!";
+            sub_message = [`${greeting}, ${user.name}!`, `Seu ponto de entrada foi registrado.`, `Bom trabalho!`];
             break;
         case "ClockLunchOut":
             dialog_type = "success";
-            message = "Ponto de almoço registrado com sucesso.";
-            sub_message = [`Olá, ${user.name}!`, `Seu ponto de entrada para o almoço foi registrado com sucesso.`, `Bom apetite!`];
+            message = "Saída para almoço registrada!";
+            sub_message = [`${greeting}, ${user.name}!`, `Aproveite seu intervalo.`, `Bom apetite!`];
             break;
         case "ClockLunchReturn":
             dialog_type = "success";
-            message = "Ponto de retorno de almoço registrado com sucesso.";
-            sub_message = [`Olá, ${user.name}!`, `Seu ponto de retorno de almoço foi registrado com sucesso.`, `Bom trabalho!`];
+            message = "Retorno do almoço registrado!";
+            sub_message = [`${greeting}, ${user.name}!`, `Bem-vindo de volta.`, `Boa tarde de trabalho!`];
             break;
         case "ClockOut":
             dialog_type = "success";
-            message = "Ponto de saída registrado com sucesso.";
-            sub_message = [`Olá, ${user.name}!`, `Seu ponto de saída foi registrado com sucesso!`, `Tenha um bom descanso e até logo!`];
+            message = "Saída registrada!";
+            sub_message = [`${greeting}, ${user.name}!`, `Seu expediente de hoje foi encerrado.`, `Até amanhã!`];
             break;
     }
     setDialogMessage({message, type: dialog_type, subMessage: sub_message});
@@ -295,9 +306,10 @@ function updateUserHourData(
         release?: string
     }>>,
     users: Users,
-    setUsers: React.Dispatch<React.SetStateAction<Users>>
+    setUsers: React.Dispatch<React.SetStateAction<Users>>,
+    punchSource: "card" | "manual_otp" = "card",
 ): void {
-    TauriApi.UpdateUser(user.id, time.date, type, time.hour).then((bool) => {
+    TauriApi.UpdateUser(user.id, time.date, type, time.hour, punchSource).then((bool) => {
         if (bool) {
             displaySuccessMessage(type, user, setDialogMessage, setMessageDialogOpen);
             setUsers(users.map((u) => {
@@ -340,13 +352,14 @@ async function HandleClockIn(
     skipValidation?: {
         type: "ClockLunchOut" | "ClockLunchReturn" | "ClockOut",
     },
+    punchSource: "card" | "manual_otp" = "card",
 ): Promise<void> {
     const time = await GetApiTime();
 
     const check = user.hour_data[time.date];
 
     if (skipValidation) {
-        handleSkipValidation(skipValidation, user, time, check, setMessageDialogOpen, setDialogMessage, users, setUsers);
+        handleSkipValidation(skipValidation, user, time, check, setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
         return;
     }
 
@@ -356,7 +369,7 @@ async function HandleClockIn(
         return;
     }
 
-    handleRegularDayLogic(user, time, check, HorarioEntrada, MinutosTolerancia, HorarioSaida, setMessageDialogOpen, setDialogMessage, users, setUsers);
+    handleRegularDayLogic(user, time, check, HorarioEntrada, MinutosTolerancia, HorarioSaida, setMessageDialogOpen, setDialogMessage, users, setUsers, punchSource);
 }
 
 async function HandleCloseRead(
@@ -366,7 +379,7 @@ async function HandleCloseRead(
 
     try {
         if (typeof window !== "undefined") {
-            await TauriApi.CloseReader()
+            await TauriApi.CancelCard()
         }
     } catch (e: any) {
         console.log(e)
@@ -424,37 +437,57 @@ async function HandleGetUser(
 
     try {
         if (typeof window !== "undefined") {
-            const data = await TauriApi.ReadCard(5);
-            if (data !== "") {
-                const user = users.find(user => user.id === data);
-                if (user) {
-                    setClockUser(user);
-                    await HandleClockIn(user, setMessageDialogOpen, setDialogMessage, users, setUsers, skipValidation);
-                } else {
+            const result = await TauriApi.AwaitTap();
+
+            switch (result.outcome) {
+                case "ok": {
+                    const user = users.find(user => user.id === result.employee_id);
+                    if (user) {
+                        setClockUser(user);
+                        await HandleClockIn(user, setMessageDialogOpen, setDialogMessage, users, setUsers, skipValidation);
+                    } else {
+                        setDialogMessage({
+                            message: `Funcionário do cartão não encontrado.`,
+                            type: "destroy"
+                        });
+                        setMessageDialogOpen(true);
+                        await HandleCloseRead(setClockUser);
+                    }
+                    break;
+                }
+                case "unknown_card": {
                     setDialogMessage({
-                        message: `Usuário com id: ${data} não encontrado.`,
+                        message: "Cartão não registrado.",
                         type: "destroy"
                     });
                     setMessageDialogOpen(true);
-                    await HandleCloseRead(
-                        setClockUser
-                    );
+                    await HandleCloseRead(setClockUser);
+                    break;
                 }
-            } else {
-                setDialogMessage({
-                    message: "Cartão não registrado.",
-                    type: "destroy"
-                });
-                setMessageDialogOpen(true);
-                await HandleCloseRead(
-                    setClockUser
-                );
+                case "blocked": {
+                    setDialogMessage({
+                        message: "Este cartão foi bloqueado. Procure um administrador.",
+                        type: "destroy"
+                    });
+                    setMessageDialogOpen(true);
+                    await HandleCloseRead(setClockUser);
+                    break;
+                }
+                case "clone_detected": {
+                    setDialogMessage({
+                        message: "Cartão clonado detectado! O cartão foi bloqueado e um administrador foi notificado.",
+                        type: "destroy"
+                    });
+                    setMessageDialogOpen(true);
+                    await HandleCloseRead(setClockUser);
+                    break;
+                }
             }
         }
     } catch (e: any) {
         console.log(e);
         setDialogMessage({
-            message: "Erro ao tentar ler o cartão.",
+            message: e?.message ?? "Erro ao tentar ler o cartão.",
             type: "destroy"
         });
     }

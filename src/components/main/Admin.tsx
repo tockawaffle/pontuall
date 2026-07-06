@@ -1,135 +1,185 @@
+import React, {useEffect, useMemo, useState} from "react";
+import Link from "next/link";
+import {useRouter} from "next/router";
+import {
+    ArrowLeft,
+    BarChart3,
+    FileText,
+    KeyRound,
+    Layers,
+    ScrollText,
+    Search,
+    UserPlus,
+    Users,
+} from "lucide-react";
 import TauriApi from "@/lib/Tauri";
-import React, {useEffect, useState} from "react";
+import {useApp} from "@/contexts/app-context";
+import {getTodayKey} from "@/lib/home-display";
 import Employees from "@/components/main/subComponents/admin/employees";
-import AddEmployee from "@/components/main/subComponents/admin/addEmployee";
-import {FileText, Search, Settings, Users} from 'lucide-react';
-import {toast} from "@/hooks/use-toast";
-import {checkPermission} from "@/lib/utils";
+import AddEmployee, {AddEmployeeTrigger} from "@/components/main/subComponents/admin/addEmployee";
+import AccessAccounts from "@/components/main/subComponents/admin/AccessAccounts";
+import AuditLog from "@/components/main/subComponents/admin/AuditLog";
 import {Card, CardContent, CardDescription, CardHeader, CardTitle} from "@/components/ui/card";
-import Label from "@/components/ui/label";
-import Input from "@/components/ui/input";
+import {Label} from "@/components/ui/label";
+import {Input} from "@/components/ui/input";
 import {Button} from "@/components/ui/button";
-import {Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger} from "@/components/ui/dialog";
+import {Badge} from "@/components/ui/badge";
+import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {Checkbox} from "@/components/ui/checkbox";
+import {
+    Empty,
+    EmptyContent,
+    EmptyDescription,
+    EmptyHeader,
+    EmptyMedia,
+    EmptyTitle,
+} from "@/components/ui/empty";
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
 import {Table, TableBody, TableCell, TableHead, TableHeader, TableRow} from "@/components/ui/table";
-
-interface AdminProps {
-    userLogged: UserLogged | Record<string, never>;
-    employees: Users;
-    setUsers: React.Dispatch<React.SetStateAction<Users | []>>;
-}
+import {toast} from "sonner";
 
 enum Keys {
     ClockIn = "ClockIn",
     ClockLunchOut = "ClockLunchOut",
     ClockLunchReturn = "ClockLunchReturn",
-    ClockOut = "ClockOut"
+    ClockOut = "ClockOut",
 }
 
-export default function Admin({userLogged, employees, setUsers}: AdminProps) {
-    const [permissions, setPermissions] = useState<StatePermissions | null>(null);
-    const [searchTerm, setSearchTerm] = useState<string>("");
+function StatCard({
+    label,
+    value,
+    hint,
+}: {
+    label: string;
+    value: string | number;
+    hint: string;
+}) {
+    return (
+        <Card>
+            <CardHeader className="pb-2">
+                <CardDescription>{label}</CardDescription>
+                <CardTitle className="text-3xl tabular-nums">{value}</CardTitle>
+            </CardHeader>
+            <CardContent>
+                <p className="text-xs text-muted-foreground">{hint}</p>
+            </CardContent>
+        </Card>
+    );
+}
+
+export default function AdminPage() {
+    const router = useRouter();
+    const {users, setUsers, workHours, refreshUsers, sessionStatus} = useApp();
+
+    const [capabilities, setCapabilities] = useState<SessionCapabilities | null>(null);
+    const [searchTerm, setSearchTerm] = useState("");
     const [selectedEmployee, setSelectedEmployee] = useState<IUsers | null>(null);
-    const [selectedDate, setSelectedDate] = useState<string>("");
-    const [relStartDate, setRelStartDate] = useState<string>("");
-    const [relEndDate, setRelEndDate] = useState<string>("");
+    const [selectedDate, setSelectedDate] = useState("");
+    const [activeTab, setActiveTab] = useState("overview");
+    const [addEmployeeOpen, setAddEmployeeOpen] = useState(false);
+    const [authChecked, setAuthChecked] = useState(false);
+    const [accessDenied, setAccessDenied] = useState(false);
+
+    const [relStartDate, setRelStartDate] = useState("");
+    const [relEndDate, setRelEndDate] = useState("");
+
     const [showMassChangeDialog, setShowMassChangeDialog] = useState(false);
     const [selectedEmployees, setSelectedEmployees] = useState<string[]>([]);
-    const [massChangeSearchTerm, setMassChangeSearchTerm] = useState<string>("");
+    const [massChangeSearchTerm, setMassChangeSearchTerm] = useState("");
     const [massChangeHourData, setMassChangeHourData] = useState<HourData>({
         clock_in: "",
         lunch_break_out: "",
         lunch_break_return: "",
         clocked_out: "",
-        total_hours: ""
+        total_hours: "",
     });
 
+    const today = getTodayKey();
+
     useEffect(() => {
-        if (!userLogged || Object.keys(userLogged).length === 0) {
-            window.location.href = "/";
+        if (sessionStatus === "loading") return;
+
+        if (sessionStatus === "guest") {
+            void router.replace("/");
             return;
         }
-        const user = userLogged as UserLogged;
 
-        const allPermissions = [
-            "WriteSelf", "WriteOthers", "ReadOthers", "EditHours", "CreateReports"
-        ];
-
-        allPermissions.forEach(permission => {
-            TauriApi.CheckPermissions(user, [permission as AppPermissions]).then((res) => {
-                setPermissions(prev => ({...prev, [permission]: res}));
-            });
+        TauriApi.CanAccessAdmin().then((allowed) => {
+            if (!allowed) {
+                setAccessDenied(true);
+                return;
+            }
+            setAuthChecked(true);
+            TauriApi.GetSessionCapabilities()
+                .then(setCapabilities)
+                .catch(() => setCapabilities(null));
         });
-    }, [userLogged]);
-
-    const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setSearchTerm(event.target.value);
-    };
+    }, [sessionStatus, router]);
 
     const filteredEmployees = searchTerm
-        ? employees.filter(employee =>
-            employee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            employee.email?.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-        : employees;
+        ? users.filter(
+              (e) =>
+                  e.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                  e.email?.toLowerCase().includes(searchTerm.toLowerCase())
+          )
+        : users;
 
     const filteredMassChangeEmployees = massChangeSearchTerm
-        ? employees.filter(employee =>
-            employee.name.toLowerCase().includes(massChangeSearchTerm.toLowerCase()) ||
-            employee.email?.toLowerCase().includes(massChangeSearchTerm.toLowerCase())
-        )
-        : employees;
+        ? users.filter(
+              (e) =>
+                  e.name.toLowerCase().includes(massChangeSearchTerm.toLowerCase()) ||
+                  e.email?.toLowerCase().includes(massChangeSearchTerm.toLowerCase())
+          )
+        : users;
 
-    async function GetUserData(employeeId: string) {
-        const user = employees.find(employee => employee.id === employeeId);
+    const stats = useMemo(() => {
+        const total = users.length;
+        const punchedToday = users.filter((u) => {
+            const day = u.hour_data?.[today];
+            return day && day.clock_in && day.clock_in !== "N/A";
+        }).length;
+        const completedToday = users.filter((u) => {
+            const day = u.hour_data?.[today];
+            return day && day.clocked_out && day.clocked_out !== "N/A";
+        }).length;
+        return {total, punchedToday, completedToday};
+    }, [users, today]);
+
+    const createReports = capabilities?.reportsCreate ?? false;
+
+    function getUserData(employeeId: string) {
+        const user = users.find((e) => e.id === employeeId);
         if (user) setSelectedEmployee(user);
     }
 
-    const createReports = checkPermission("CreateReports", permissions!);
-    const today = new Date().toLocaleDateString("pt-BR");
+    const formatTimeWithSeconds = (time: string) => (time ? `${time}:00` : "N/A");
 
-    const formatTimeWithSeconds = (time: string) => {
-        return time ? `${time}:00` : "N/A";
-    };
-
-    const handleMassChange = async () => {
-        // Get only the keys that have been modified (non-empty values)
+    async function handleMassChange() {
         const modifiedKeys = Object.keys(massChangeHourData).filter(
-            key => massChangeHourData[key as keyof HourData] !== ""
+            (key) => massChangeHourData[key as keyof HourData] !== ""
         );
 
         if (modifiedKeys.length === 0) {
-            toast({
-                title: "Nenhuma alteração",
-                description: "Nenhum dado foi modificado para atualização.",
-                variant: "destructive",
+            toast.error("Nenhuma alteração", {
+                description: "Informe ao menos um horário para atualizar.",
             });
             return;
         }
 
-        // Array to hold the update promises for all selected employees
         const updatePromises = selectedEmployees.map(async (employeeId) => {
-            // Find the employee by ID
-            const employee = employees.find(emp => emp.id === employeeId);
-            if (!employee) return false;
-
-            // Create an object to hold only the updated fields
             const updatedHourData: Partial<HourData> = {};
-
-            // Iterate over the modified fields and set them in the update object
-            modifiedKeys.forEach(key => {
-                if (massChangeHourData[key as keyof HourData]) {
-                    updatedHourData[key as keyof HourData] = formatTimeWithSeconds(
-                        massChangeHourData[key as keyof HourData]
-                    );
-                }
+            modifiedKeys.forEach((key) => {
+                const val = massChangeHourData[key as keyof HourData];
+                if (val) updatedHourData[key as keyof HourData] = formatTimeWithSeconds(val);
             });
 
-            // Now, execute the update API call only for the modified fields
-            const employeeUpdates = Object.keys(updatedHourData).map(async (key) => {
+            const fieldUpdates = Object.keys(updatedHourData).map(async (key) => {
                 let keyToUpdate: Keys;
-
-                // Match the key to the corresponding database field
                 switch (key) {
                     case "clock_in":
                         keyToUpdate = Keys.ClockIn;
@@ -144,207 +194,417 @@ export default function Admin({userLogged, employees, setUsers}: AdminProps) {
                         keyToUpdate = Keys.ClockOut;
                         break;
                     default:
-                        return true; // Skip total_hours or any other field
+                        return true;
                 }
-
-                // Perform the update for each field individually
+                const updatedValue = updatedHourData[key as keyof HourData];
+                if (!updatedValue) return false;
                 try {
-                    const updatedValue = updatedHourData[key as keyof HourData];
-                    if (!updatedValue) return false;
                     return await TauriApi.UpdateUser(employeeId, today, keyToUpdate, updatedValue);
-                } catch (e) {
-                    console.error(e);
+                } catch {
                     return false;
                 }
             });
 
-            // Wait for all field updates to complete for the current employee
-            const results = await Promise.all(employeeUpdates);
-            return results.every(Boolean); // Returns true only if all updates are successful
+            const results = await Promise.all(fieldUpdates);
+            return results.every(Boolean);
         });
 
-        // Wait for all employee updates to complete
         const updateResults = await Promise.all(updatePromises);
 
         if (updateResults.every(Boolean)) {
-            // Update the UI data only for successfully updated employees
-            await TauriApi.UpdateCache();
-            const newCache = await TauriApi.GetCache();
-            const users = Object.entries(newCache).map(([key, value]) => {
-                return {
-                    ...value
-                }
-            }) as Users
-
-            setUsers(users);
-
-            toast({
-                title: "Atualização bem-sucedida",
-                description: "Os dados foram atualizados com sucesso para todos os funcionários selecionados.",
+            await refreshUsers();
+            toast.success("Atualização concluída", {
+                description: "Horários atualizados para os funcionários selecionados.",
             });
         } else {
-            toast({
-                title: "Erro na atualização",
-                description: "Ocorreu um erro ao atualizar os dados de alguns funcionários.",
-                variant: "destructive",
+            toast.error("Erro parcial", {
+                description: "Alguns registros não puderam ser atualizados.",
             });
         }
-
-        // Close the mass change dialog
         setShowMassChangeDialog(false);
-    };
+    }
 
+    function toggleAllEmployees(checked: boolean) {
+        setSelectedEmployees(checked ? filteredMassChangeEmployees.map((e) => e.id) : []);
+    }
 
-    const toggleAllEmployees = (checked: boolean) => {
-        if (checked) {
-            setSelectedEmployees(filteredMassChangeEmployees.map(emp => emp.id));
-        } else {
-            setSelectedEmployees([]);
+    async function handleGenerateReport() {
+        if (!relStartDate || !relEndDate) return;
+        const startDate = new Date(relStartDate).toLocaleDateString("pt-BR");
+        const endDate = new Date(relEndDate).toLocaleDateString("pt-BR");
+
+        try {
+            await TauriApi.CreateReport(
+                startDate,
+                endDate,
+                workHours.entry,
+                workHours.exit,
+                String(workHours.toleranceMinutes)
+            );
+            toast.success("Relatório gerado", {
+                description: "Escolha onde salvar o arquivo Excel.",
+            });
+        } catch (e: any) {
+            toast.error("Erro ao gerar relatório", {description: e?.message ?? String(e)});
         }
-    };
+    }
+
+    if (sessionStatus === "loading" || (!authChecked && !accessDenied)) {
+        return (
+            <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">
+                Verificando permissões…
+            </div>
+        );
+    }
+
+    if (accessDenied) {
+        return (
+            <div className="mx-auto max-w-lg px-4 py-16 text-center space-y-4">
+                <h1 className="text-xl font-semibold">Acesso restrito</h1>
+                <p className="text-muted-foreground text-sm">
+                    Sua conta não tem permissão de supervisão. Entre com um usuário administrador ou
+                    supervisor para acessar esta área.
+                </p>
+                <Button asChild variant="secondary">
+                    <Link href="/">Voltar ao ponto</Link>
+                </Button>
+            </div>
+        );
+    }
 
     return (
-        <div className="bg-background rounded-lg shadow-sm p-6 space-y-6">
-            <div>
-                <h2 className="text-3xl font-bold">Administração</h2>
-                <p className="text-muted-foreground mt-2">
-                    Gerencie o sistema e os funcionários aqui.
-                </p>
+        <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 space-y-8">
+            <Button variant="ghost" size="sm" className="-ml-2 w-fit gap-1.5 text-muted-foreground" asChild>
+                <Link href="/">
+                    <ArrowLeft className="h-4 w-4"/>
+                    Voltar ao ponto
+                </Link>
+            </Button>
+
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                <div className="space-y-2">
+                    <p className="text-sm font-medium text-primary">Administração</p>
+                    <h1 className="text-3xl font-bold tracking-tight">Central de gestão</h1>
+                    <p className="text-muted-foreground max-w-2xl">
+                        Visão operacional do dia, ajustes de ponto, equipe e contas de acesso — tudo
+                        em um só lugar.
+                    </p>
+                </div>
+                {users.length > 0 && (
+                    <AddEmployeeTrigger onClick={() => setAddEmployeeOpen(true)}/>
+                )}
             </div>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                <Card className="h-[calc(100vh-200px)] overflow-y-auto custom-scrollbar">
-                    <CardHeader>
-                        <CardTitle className="flex items-center"><Users className="mr-2"/> Pontos</CardTitle>
-                        <CardDescription>Verifique os Pontos de Funcionários</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="flex flex-col sm:flex-row justify-between items-center gap-4">
-                            <div className="w-full sm:w-1/2 relative">
-                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"/>
+
+            <AddEmployee
+                setUsers={setUsers}
+                open={addEmployeeOpen}
+                onOpenChange={setAddEmployeeOpen}
+                defaultLunchTime="12:00"
+            />
+
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <StatCard
+                    label="Funcionários"
+                    value={stats.total}
+                    hint="Cadastrados no sistema"
+                />
+                <StatCard
+                    label="Pontos hoje"
+                    value={stats.punchedToday}
+                    hint={`De ${stats.total} registraram entrada`}
+                />
+                <StatCard
+                    label="Jornada concluída"
+                    value={stats.completedToday}
+                    hint="Saída registrada hoje"
+                />
+                <StatCard
+                    label="Jornada configurada"
+                    value={`${workHours.entry.slice(0, 5)} – ${workHours.exit.slice(0, 5)}`}
+                    hint={`Tolerância: ${workHours.toleranceMinutes} min`}
+                />
+            </div>
+
+            <Tabs value={activeTab} onValueChange={setActiveTab}>
+                <TabsList className="flex flex-wrap h-auto gap-1">
+                    <TabsTrigger value="overview" className="gap-1.5">
+                        <BarChart3 className="h-4 w-4"/> Visão geral
+                    </TabsTrigger>
+                    <TabsTrigger value="punches" className="gap-1.5">
+                        <Users className="h-4 w-4"/> Pontos
+                    </TabsTrigger>
+                    <TabsTrigger value="accounts" className="gap-1.5">
+                        <KeyRound className="h-4 w-4"/> Logins
+                    </TabsTrigger>
+                    <TabsTrigger value="reports" className="gap-1.5">
+                        <FileText className="h-4 w-4"/> Relatórios
+                    </TabsTrigger>
+                    {capabilities?.hierarchyManage && (
+                        <TabsTrigger value="audit" className="gap-1.5">
+                            <ScrollText className="h-4 w-4"/> Auditoria
+                        </TabsTrigger>
+                    )}
+                    <TabsTrigger value="bulk" className="gap-1.5">
+                        <Layers className="h-4 w-4"/> Em massa
+                    </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="overview" className="mt-6 space-y-4">
+                    {users.length === 0 && (
+                        <Empty className="border">
+                            <EmptyHeader>
+                                <EmptyMedia variant="icon">
+                                    <UserPlus/>
+                                </EmptyMedia>
+                                <EmptyTitle>Comece cadastrando sua equipe</EmptyTitle>
+                                <EmptyDescription>
+                                    Um funcionário no sistema já libera ponto, relatórios e gestão do
+                                    dia. O cartão NFC e detalhes extras vêm depois.
+                                </EmptyDescription>
+                            </EmptyHeader>
+                            <EmptyContent>
+                                <AddEmployeeTrigger
+                                    label="Cadastrar primeiro funcionário"
+                                    onClick={() => setAddEmployeeOpen(true)}
+                                />
+                            </EmptyContent>
+                        </Empty>
+                    )}
+                    <div className="grid gap-4 md:grid-cols-2">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-base">Ações rápidas</CardTitle>
+                                <CardDescription>Atalhos para tarefas frequentes</CardDescription>
+                            </CardHeader>
+                            <CardContent className="flex flex-wrap gap-2">
+                                <Button variant="secondary" size="sm" onClick={() => setActiveTab("punches")}>
+                                    Revisar pontos de hoje
+                                </Button>
+                                <Button variant="secondary" size="sm" onClick={() => setActiveTab("accounts")}>
+                                    Ver logins ativos
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    disabled={!createReports}
+                                    onClick={() => setActiveTab("reports")}
+                                >
+                                    Gerar relatório
+                                </Button>
+                                <Button variant="outline" size="sm" onClick={() => void refreshUsers()}>
+                                    Atualizar dados
+                                </Button>
+                            </CardContent>
+                        </Card>
+                        <Card>
+                            <CardHeader>
+                                <CardTitle className="text-base">Resumo de hoje</CardTitle>
+                                <CardDescription>{today}</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-2 max-h-48 overflow-y-auto">
+                                {users.length === 0 && (
+                                    <p className="text-sm text-muted-foreground">
+                                        Nenhum ponto registrado ainda — cadastre a equipe para começar.
+                                    </p>
+                                )}
+                                {users.slice(0, 8).map((emp) => {
+                                    const day = emp.hour_data?.[today];
+                                    const status = !day?.clock_in || day.clock_in === "N/A"
+                                        ? "Ausente"
+                                        : !day?.clocked_out || day.clocked_out === "N/A"
+                                          ? "Em jornada"
+                                          : "Concluído";
+                                    return (
+                                        <div key={emp.id} className="flex items-center justify-between text-sm">
+                                            <span>{emp.name}</span>
+                                            <Badge variant="outline">{status}</Badge>
+                                        </div>
+                                    );
+                                })}
+                                {users.length > 8 && (
+                                    <p className="text-xs text-muted-foreground pt-1">
+                                        +{users.length - 8} funcionários — veja na aba Pontos
+                                    </p>
+                                )}
+                            </CardContent>
+                        </Card>
+                    </div>
+                    <Card>
+                        <CardHeader>
+                            <CardTitle className="text-base flex items-center gap-2">
+                                <UserPlus className="h-4 w-4"/> Configuração operacional
+                            </CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-sm text-muted-foreground space-y-2">
+                            <p>
+                                Horários e tolerância vêm de{" "}
+                                <Button variant="link" className="h-auto p-0" onClick={() => router.push("/settings?tab=schedule")}>
+                                    Configurações → Jornada
+                                </Button>
+                                . Relatórios Excel usam esses valores automaticamente.
+                            </p>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="punches" className="mt-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Pontos dos funcionários</CardTitle>
+                            <CardDescription>Consulte e edite registros por data</CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                            <div className="relative max-w-md">
+                                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/>
                                 <Input
-                                    id="search"
-                                    placeholder="Procurar por e-mail ou nome"
+                                    placeholder="Buscar por nome ou e-mail"
                                     value={searchTerm}
-                                    onChange={handleSearchChange}
+                                    onChange={(e) => setSearchTerm(e.target.value)}
                                     className="pl-10"
                                 />
                             </div>
-                            <Button variant="secondary" onClick={() => setShowMassChangeDialog(true)}>
-                                Mudança em Massa
-                            </Button>
-                        </div>
-                        <Employees
-                            selectedEmployee={selectedEmployee}
-                            filteredEmployees={filteredEmployees}
-                            selectedDate={selectedDate}
-                            setSelectedDate={setSelectedDate}
-                            setUsers={setUsers}
-                            GetData={GetUserData}
-                            Permissions={permissions}
-                        />
-                    </CardContent>
-                </Card>
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="flex items-center"><Settings className="mr-2"/> Gerenciamento</CardTitle>
-                        <CardDescription>Funções de Gerenciamento</CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                            <AddEmployee setUsers={setUsers}/>
-                            <Button variant="secondary">Configurar Horários</Button>
-                            <Dialog>
-                                <DialogTrigger asChild>
-                                    <Button disabled={!createReports} variant="secondary" className="w-full">
-                                        <FileText className="mr-2"/> Gerar Relatório
-                                    </Button>
-                                </DialogTrigger>
-                                <DialogContent>
-                                    <DialogHeader>
-                                        <DialogTitle>Gerar Relatório</DialogTitle>
-                                    </DialogHeader>
-                                    <div className="space-y-4">
-                                        <div>
-                                            <Label htmlFor="startDate">Data de Início</Label>
-                                            <Input
-                                                id="startDate"
-                                                type="date"
-                                                value={relStartDate}
-                                                onChange={(e) => setRelStartDate(e.target.value)}
-                                            />
-                                        </div>
-                                        <div>
-                                            <Label htmlFor="endDate">Data Final</Label>
-                                            <Input
-                                                id="endDate"
-                                                type="date"
-                                                value={relEndDate}
-                                                onChange={(e) => setRelEndDate(e.target.value)}
-                                            />
-                                        </div>
-                                        <Button onClick={() => {
-                                            if (relStartDate && relEndDate) {
-                                                const startDate = new Date(relStartDate).toLocaleDateString();
-                                                const endDate = new Date(relEndDate).toLocaleDateString();
-                                                const entryTime = localStorage.getItem("HorarioEntrada");
-                                                const exitTime = localStorage.getItem("HorarioSaida");
-                                                const tolerance = localStorage.getItem("MinutosTolerancia");
+                            <Employees
+                                selectedEmployee={selectedEmployee}
+                                filteredEmployees={filteredEmployees}
+                                selectedDate={selectedDate}
+                                setSelectedDate={setSelectedDate}
+                                setUsers={setUsers}
+                                GetData={getUserData}
+                                setSelectedEmployee={setSelectedEmployee}
+                                capabilities={capabilities}
+                            />
+                        </CardContent>
+                    </Card>
+                </TabsContent>
 
-                                                if (!entryTime || !exitTime || !tolerance) {
-                                                    toast({
-                                                        title: "Configuração incompleta",
-                                                        description: "Por favor, configure os horários de entrada e saída e a tolerância antes de gerar o relatório.",
-                                                        variant: "destructive",
-                                                    });
-                                                    return;
-                                                }
-                                                TauriApi.CreateReport(startDate, endDate, entryTime, exitTime, tolerance).then(() => {
-                                                    toast({
-                                                        title: "Relatório Gerado",
-                                                        description: "O relatório foi gerado com sucesso.",
-                                                    });
-                                                });
-                                            }
-                                        }} variant="secondary">Gerar</Button>
-                                    </div>
-                                </DialogContent>
-                            </Dialog>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
+                <TabsContent value="accounts" className="mt-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Logins de acesso</CardTitle>
+                            <CardDescription>
+                                Gerencie senhas, perfis e status de contas já existentes. Novos
+                                cadastros são feitos em um único fluxo ao adicionar funcionário.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <AccessAccounts employees={users}/>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="reports" className="mt-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Relatório Excel</CardTitle>
+                            <CardDescription>
+                                Exporta presença, atrasos e faltas com base na jornada configurada
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="space-y-4 max-w-md">
+                            {!createReports && (
+                                <p className="text-sm text-muted-foreground">
+                                    Sua conta não possui permissão para gerar relatórios.
+                                </p>
+                            )}
+                            <div className="space-y-2">
+                                <Label htmlFor="startDate">Data de início</Label>
+                                <Input
+                                    id="startDate"
+                                    type="date"
+                                    value={relStartDate}
+                                    onChange={(e) => setRelStartDate(e.target.value)}
+                                    disabled={!createReports}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="endDate">Data final</Label>
+                                <Input
+                                    id="endDate"
+                                    type="date"
+                                    value={relEndDate}
+                                    onChange={(e) => setRelEndDate(e.target.value)}
+                                    disabled={!createReports}
+                                />
+                            </div>
+                            <div className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground space-y-1">
+                                <p>Entrada: {workHours.entry.slice(0, 5)}</p>
+                                <p>Saída: {workHours.exit.slice(0, 5)}</p>
+                                <p>Tolerância: {workHours.toleranceMinutes} min</p>
+                            </div>
+                            <Button
+                                disabled={!createReports || !relStartDate || !relEndDate}
+                                onClick={() => void handleGenerateReport()}
+                            >
+                                Gerar e salvar Excel
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                {capabilities?.hierarchyManage && (
+                    <TabsContent value="audit" className="mt-6">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Auditoria de acessos</CardTitle>
+                                <CardDescription>
+                                    Registro imutável de logins, contas e ações administrativas
+                                </CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <AuditLog/>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                )}
+
+                <TabsContent value="bulk" className="mt-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Mudança em massa</CardTitle>
+                            <CardDescription>
+                                Aplique os mesmos horários a vários funcionários para {today}
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                            <Button onClick={() => setShowMassChangeDialog(true)}>
+                                Selecionar funcionários
+                            </Button>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+            </Tabs>
 
             <Dialog open={showMassChangeDialog} onOpenChange={setShowMassChangeDialog}>
-                <DialogContent className="max-w-4xl">
+                <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>Selecionar Funcionários para Mudança em Massa</DialogTitle>
+                        <DialogTitle>Mudança em massa — {today}</DialogTitle>
                     </DialogHeader>
                     <div className="space-y-4">
                         <div className="relative">
-                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"/>
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"/>
                             <Input
-                                placeholder="Procurar funcionários"
+                                placeholder="Buscar funcionários"
                                 value={massChangeSearchTerm}
                                 onChange={(e) => setMassChangeSearchTerm(e.target.value)}
                                 className="pl-10"
                             />
                         </div>
-                        <div className="max-h-[400px] overflow-y-auto border rounded-md">
+                        <div className="max-h-[280px] overflow-y-auto border rounded-md">
                             <Table>
                                 <TableHeader>
                                     <TableRow>
                                         <TableHead className="w-[50px]">
                                             <Checkbox
-                                                checked={selectedEmployees.length === filteredMassChangeEmployees.length}
+                                                checked={
+                                                    filteredMassChangeEmployees.length > 0 &&
+                                                    selectedEmployees.length ===
+                                                        filteredMassChangeEmployees.length
+                                                }
                                                 onCheckedChange={toggleAllEmployees}
-                                                aria-label="Select all employees"
                                             />
                                         </TableHead>
                                         <TableHead>Nome</TableHead>
-                                        <TableHead>Data</TableHead>
                                         <TableHead>Entrada</TableHead>
-                                        <TableHead>Saída Almoço</TableHead>
-                                        <TableHead>Retorno Almoço</TableHead>
                                         <TableHead>Saída</TableHead>
                                     </TableRow>
                                 </TableHeader>
@@ -357,82 +617,58 @@ export default function Admin({userLogged, employees, setUsers}: AdminProps) {
                                                     <Checkbox
                                                         checked={selectedEmployees.includes(employee.id)}
                                                         onCheckedChange={(checked) => {
-                                                            setSelectedEmployees(prev =>
+                                                            setSelectedEmployees((prev) =>
                                                                 checked
                                                                     ? [...prev, employee.id]
-                                                                    : prev.filter(id => id !== employee.id)
+                                                                    : prev.filter((id) => id !== employee.id)
                                                             );
                                                         }}
-                                                        aria-label={`Select ${employee.name}`}
                                                     />
                                                 </TableCell>
                                                 <TableCell>{employee.name}</TableCell>
-                                                <TableCell>{today}</TableCell>
-                                                <TableCell>{employee.hour_data[today]?.clock_in || "N/A"}</TableCell>
-                                                <TableCell>{employee.hour_data[today]?.lunch_break_out || "N/A"}</TableCell>
-                                                <TableCell>{employee.hour_data[today]?.lunch_break_return || "N/A"}</TableCell>
-                                                <TableCell>{employee.hour_data[today]?.clocked_out || "N/A"}</TableCell>
+                                                <TableCell>
+                                                    {employee.hour_data[today]?.clock_in || "N/A"}
+                                                </TableCell>
+                                                <TableCell>
+                                                    {employee.hour_data[today]?.clocked_out || "N/A"}
+                                                </TableCell>
                                             </TableRow>
                                         ))}
                                 </TableBody>
                             </Table>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <Label htmlFor="massClockIn">Entrada</Label>
-                                <Input
-                                    id="massClockIn"
-                                    type="time"
-                                    value={massChangeHourData.clock_in}
-                                    onChange={(e) => setMassChangeHourData(prev => ({
-                                        ...prev,
-                                        clock_in: e.target.value
-                                    }))}
-                                    className="text-foreground bg-background border-input"
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="massLunchOut">Saída Almoço</Label>
-                                <Input
-                                    id="massLunchOut"
-                                    type="time"
-                                    value={massChangeHourData.lunch_break_out}
-                                    onChange={(e) => setMassChangeHourData(prev => ({
-                                        ...prev,
-                                        lunch_break_out: e.target.value
-                                    }))}
-                                    className="text-foreground bg-background border-input"
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="massLunchReturn">Retorno Almoço</Label>
-                                <Input
-                                    id="massLunchReturn"
-                                    type="time"
-                                    value={massChangeHourData.lunch_break_return}
-                                    onChange={(e) => setMassChangeHourData(prev => ({
-                                        ...prev,
-                                        lunch_break_return: e.target.value
-                                    }))}
-                                    className="text-foreground bg-background border-input"
-                                />
-                            </div>
-                            <div>
-                                <Label htmlFor="massClockOut">Saída</Label>
-                                <Input
-                                    id="massClockOut"
-                                    type="time"
-                                    value={massChangeHourData.clocked_out}
-                                    onChange={(e) => setMassChangeHourData(prev => ({
-                                        ...prev,
-                                        clocked_out: e.target.value
-                                    }))}
-                                    className="text-foreground bg-background border-input"
-                                />
-                            </div>
+                            {(
+                                [
+                                    ["massClockIn", "clock_in", "Entrada"],
+                                    ["massLunchOut", "lunch_break_out", "Saída almoço"],
+                                    ["massLunchReturn", "lunch_break_return", "Retorno almoço"],
+                                    ["massClockOut", "clocked_out", "Saída"],
+                                ] as const
+                            ).map(([id, key, label]) => (
+                                <div key={id} className="space-y-2">
+                                    <Label htmlFor={id}>{label}</Label>
+                                    <Input
+                                        id={id}
+                                        type="time"
+                                        value={massChangeHourData[key]}
+                                        onChange={(e) =>
+                                            setMassChangeHourData((prev) => ({
+                                                ...prev,
+                                                [key]: e.target.value,
+                                            }))
+                                        }
+                                    />
+                                </div>
+                            ))}
                         </div>
+                        <Button
+                            onClick={() => void handleMassChange()}
+                            disabled={selectedEmployees.length === 0}
+                        >
+                            Aplicar a {selectedEmployees.length} funcionário(s)
+                        </Button>
                     </div>
-                    <Button onClick={handleMassChange}>Iniciar Mudança em Massa</Button>
                 </DialogContent>
             </Dialog>
         </div>

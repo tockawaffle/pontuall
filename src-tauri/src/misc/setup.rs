@@ -1,109 +1,113 @@
 use std::sync::Mutex;
+
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
-use tokio::{spawn, task};
 
-
-use crate::cache::set::get_users_and_cache;
-use crate::database::connect::{create_db_connections, SharedDatabases};
-use crate::database::sync::sync_database;
-use crate::misc::ping::check_connection_loop;
+use crate::db::error::DbError;
+use crate::db::{connect_postgres, keyring_get, DbState, KEYRING_APP_NAME, KEYRING_PG_URI};
 
 pub(crate) struct SetupState {
     pub frontend_task: bool,
     pub backend_task: bool,
 }
 
-async fn setup(app: AppHandle) -> Result<(), ()> {
-    let db_connection = create_db_connections().await.unwrap();
+/// Backend boot: connect Postgres from the stored configuration (staying
+/// offline when unreachable), refresh the SQLite mirror, start the
+/// connectivity watcher.
+async fn setup(app: AppHandle) -> Result<(), String> {
+    let state = app.state::<DbState>();
 
-    app.manage::<SharedDatabases>(db_connection);
-
-    spawn(check_connection_loop(app.clone()));
-
-    let splash_window = app.get_webview_window("splashscreen").unwrap();
-    splash_window.emit("splashscreen:progress", ("database", true))
-        .unwrap();
-
-    get_users_and_cache(app.clone()).await;
-    splash_window
-        .emit("splashscreen:progress", ("cache", true))
-        .unwrap();
-
-    let sync = sync_database(app.clone()).await.map_err(|e| format!("Got error from sync function: {:?}", e));
-
-    match sync {
-        Ok(_) => {}
-        Err(e) => {
-            println!("Sync got an error: {}", e);
+    match (keyring_get(KEYRING_PG_URI), keyring_get(KEYRING_APP_NAME)) {
+        (Ok(uri), Ok(app_name)) => match connect_postgres(&uri, &app_name).await {
+            Ok(pool) => {
+                *state.pg.write().await = Some(pool);
+                state
+                    .is_online
+                    .store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+            Err(e) => {
+                eprintln!("PostgreSQL unreachable, starting offline: {e}");
+            }
+        },
+        _ => {
+            eprintln!("no database configured yet, starting offline");
         }
     }
 
-    splash_window
-        .emit("splashscreen:progress", ("finish", true))
-        .unwrap();
+    tauri::async_runtime::spawn(crate::db::online::watch_loop(app.clone()));
 
-    // Use a blocking task if `complete_setup` or its parameters are not `Send`
-    task::spawn_blocking(move || {
-        let runtime = tokio::runtime::Runtime::new().unwrap();
-        runtime.block_on(complete_setup(
-            app.clone(),
-            app.state::<Mutex<SetupState>>(),
-            "finish_backend".to_string(),
-        ))
-    })
-        .await
-        .unwrap()?;
+    // Auth requires Postgres; when offline the app still boots, but login
+    // stays unavailable until connectivity returns.
+    if let Err(e) = crate::auth::sidecar::start(&app).await {
+        eprintln!("auth sidecar not started: {e}");
+    }
 
-    Ok(())
+    emit_progress(&app, "database");
+
+    if let Err(e) = crate::db::sync::run_sync(&app).await {
+        eprintln!("initial sync failed: {e}");
+    }
+    emit_progress(&app, "cache");
+    emit_progress(&app, "finish");
+
+    finish(&app, Task::Backend).map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub(crate) async fn complete_setup(
-    app: AppHandle,
-    state: State<'_, Mutex<SetupState>>,
-    task: String,
-) -> Result<(), ()> {
-    let mut state_lock = state.lock().unwrap();
+fn emit_progress(app: &AppHandle, step: &str) {
+    if let Some(splash) = app.get_webview_window("splashscreen") {
+        let _ = splash.emit("splashscreen:progress", (step, true));
+    }
+}
 
-    match task.as_str() {
-        "finish_frontend" => {
-            state_lock.frontend_task = true;
+enum Task {
+    Frontend,
+    Backend,
+}
 
-            // Start the backend setup using tokio::spawn
-            task::spawn(setup(app.clone()));
-        }
-        "finish_backend" => {
-            state_lock.backend_task = true;
-        }
-        _ => {}
+/// Marks one side of the boot handshake done; when both frontend and backend
+/// have finished, swaps the splashscreen for the main window.
+fn finish(app: &AppHandle, task: Task) -> Result<(), DbError> {
+    let state: State<'_, Mutex<SetupState>> = app.state();
+    let mut lock = state
+        .lock()
+        .map_err(|_| DbError::Config("setup state poisoned".into()))?;
+
+    match task {
+        Task::Frontend => lock.frontend_task = true,
+        Task::Backend => lock.backend_task = true,
     }
 
-    if state_lock.backend_task && state_lock.frontend_task {
-        // Check if webview main already exists
-        if app.get_webview_window("main").is_none() {
-            println!("Creating main window");
-            // This creates the main window dynamically to prevent authentication issues.
-            // If the main window gets created and there's no token, the app might just not work.
-            WebviewWindowBuilder::new(&app, "main".to_string(), WebviewUrl::default())
+    if lock.backend_task && lock.frontend_task {
+        if let Some(main_window) = app.get_webview_window("main") {
+            let _ = main_window.maximize();
+            let _ = main_window.center();
+            let _ = main_window.show();
+        } else {
+            WebviewWindowBuilder::new(app, "main".to_string(), WebviewUrl::default())
                 .title("PontuAll")
                 .center()
                 .maximized(true)
                 .visible(true)
                 .build()
-                .unwrap_or_else(|e| panic!("Error: {}", e));
-        } else {
-            // If the main window already exists, just show it
-            let main_window = app.get_webview_window("main").unwrap();
-            main_window.maximize().unwrap();
-            main_window.center().unwrap();
-            main_window.show().unwrap();
+                .map_err(|e| DbError::Config(format!("could not create main window: {e}")))?;
         }
 
-        let splash_window = app.get_webview_window("splashscreen").unwrap_or_else(|| {
-            panic!("Could not find the splashscreen window");
-        });
-        splash_window.close().unwrap();
+        if let Some(splash) = app.get_webview_window("splashscreen") {
+            let _ = splash.close();
+        }
     }
 
     Ok(())
+}
+
+#[tauri::command]
+pub(crate) async fn complete_setup(app: AppHandle, task: String) -> Result<(), String> {
+    match task.as_str() {
+        "finish_frontend" => {
+            finish(&app, Task::Frontend).map_err(|e| e.to_string())?;
+            tauri::async_runtime::spawn(setup(app));
+            Ok(())
+        }
+        "finish_backend" => finish(&app, Task::Backend).map_err(|e| e.to_string()),
+        other => Err(format!("unknown setup task: {other}")),
+    }
 }

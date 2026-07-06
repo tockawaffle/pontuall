@@ -1,0 +1,23 @@
+{
+    "name": "pontuall-auth-sidecar",
+    "version": "0.2.0",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev": "bun run prisma:generate && bun run src/index.ts",
+        "prisma:generate": "bunx --bun prisma generate",
+        "build": "bun run build.ts"
+    },
+    "dependencies": {
+        "@prisma/adapter-pg": "^7.8.0",
+        "@prisma/client": "^7.8.0",
+        "better-auth": "1.6.23",
+        "nodemailer": "^7.0.5",
+        "pg": "^8.22.0",
+        "prisma": "^7.8.0"
+    },
+    "devDependencies": {
+        "@types/bun": "^1.2.0",
+        "@types/nodemailer": "^6.4.17"
+    }
+}

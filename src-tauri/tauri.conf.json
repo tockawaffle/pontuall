@@ -1,21 +1,23 @@
 {
 	"productName": "PontuAll",
-	"version": "0.1.2",
-	"identifier": "PontuAll",
+	"version": "0.2.0",
+	"identifier": "com.tockanest.pontuall",
 	"build": {
-		"beforeDevCommand": "npm run dev",
-		"beforeBuildCommand": "npm run build",
+		"beforeDevCommand": "bun run sidecar:build && bun run dev",
+		"beforeBuildCommand": "bun run sidecar:build && bun run build",
 		"devUrl": "http://localhost:3000",
 		"frontendDist": "../out"
 	},
 	"app": {
-		"withGlobalTauri": true,
+		"withGlobalTauri": false,
 		"windows": [
 			{
 				"label": "splashscreen",
-				"title": "PontuAll - Inicializando",
-				"width": 600,
-				"height": 600,
+				"title": "PontuAll — Configuração",
+				"width": 920,
+				"height": 640,
+				"minWidth": 880,
+				"minHeight": 580,
 				"resizable": true,
 				"visible": true,
 				"url": "/splashscreen",
@@ -24,7 +26,7 @@
 			}
 		],
 		"security": {
-			"csp": null
+			"csp": "default-src 'self'; img-src 'self' data: asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
 		}
 	},
 	"bundle": {
@@ -32,6 +34,9 @@
 		"targets": "all",
 		"icon": [
 			"icons/clock.ico"
+		],
+		"externalBin": [
+			"binaries/pontuall-auth"
 		]
 	}
 }

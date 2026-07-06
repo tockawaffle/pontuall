@@ -12,18 +12,6 @@
 		"core:image:default",
 		"core:resources:default",
 		"core:menu:default",
-		"core:tray:default",
-		"fs:default",
-		"fs:allow-create",
-		"fs:allow-appconfig-read-recursive",
-		"fs:allow-appconfig-write-recursive",
-		{
-			"identifier": "fs:allow-exists",
-			"allow": [
-				{
-					"path": "$APPDATA/**"
-				}
-			]
-		}
+		"core:tray:default"
 	]
 }

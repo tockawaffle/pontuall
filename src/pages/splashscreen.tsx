@@ -2,43 +2,42 @@
 
 import React, {useEffect, useState} from "react"
 import {Progress} from "@/components/ui/progress"
-import {ClockIcon} from "@/components/component/icons";
 import {Button} from "@/components/ui/button";
-import Link from "next/link";
 import TauriApi from "@/lib/Tauri";
 import HoursSetup from "@/components/splashscreen/HoursSetup";
-import MongoDbSetup from "@/components/splashscreen/MongoDbSetup";
+import PostgresSetup from "@/components/splashscreen/PostgresSetup";
+import FirstUser from "@/components/splashscreen/FirstUser";
+import SetupShell, {SetupLoadingShell} from "@/components/splashscreen/SetupShell";
+import SetupStepHeader from "@/components/splashscreen/SetupStepHeader";
+import {Check} from "lucide-react";
 
 async function SetupDatabase(
     appName: string,
     uri?: string,
 ) {
     try {
-        await TauriApi.SetupDatabase(appName, uri || "mongodb://localhost:27017",);
+        await TauriApi.SetupDatabase(appName, uri || "postgres://postgres:postgres@localhost:5432");
         return true
     } catch (e: any) {
         console.log(e)
-        throw new Error(e);
+        throw new Error(e?.message ?? e);
     }
 }
 
-async function Setup(
-    setBackendSetup: (value: boolean) => void,
-    appName: string,
-    uri?: string,
-) {
-    try {
-        const setupDb = await SetupDatabase(appName, uri);
-
-        if (setupDb) {
-            setBackendSetup(true);
-        }
-
-        return true
-    } catch (e: any) {
-        throw new Error(e);
-    }
-}
+const WELCOME_FEATURES = [
+    {
+        title: "Bata ponto em segundos",
+        desc: "Cartão NFC no leitor ACR122U — sem fila, sem senha.",
+    },
+    {
+        title: "Funciona offline",
+        desc: "Registros locais sincronizados quando a conexão voltar.",
+    },
+    {
+        title: "Segurança contra clonagem",
+        desc: "Tokens rotativos bloqueiam cartões duplicados automaticamente.",
+    },
+] as const;
 
 export default function Splashscreen() {
     const [currentStep, setCurrentStep] = useState(1)
@@ -47,38 +46,41 @@ export default function Splashscreen() {
     const [setupStep, setSetupStep] = useState(0)
     const [AppConfigured, setAppConfigured] = useState(false)
 
-    const [firstUser, setFirstUser] = useState<FirstUser>({
-        id: "",
-        username: "",
-        password: "",
-        registered_at: "",
-        worker_data: {
-            name: "",
-            role: "",
-            email: "",
-            phone: "",
-            permissions: {
-                flags: ""
-            }
-        }
-    })
-
-    const [mongoDbUri, setMongoDbUri] = useState<string>("")
+    const [postgresUri, setPostgresUri] = useState<string>("")
     const [appName, setAppName] = useState<string>("")
 
-    const [horarioEntrada, setHorarioEntrada] = useState<string>("")
-    const [minutosTolerancia, setMinutosTolerancia] = useState<number>(0)
-    const [horarioSaida, setHorarioSaida] = useState<string>("")
+    const [horarioEntrada, setHorarioEntrada] = useState<string>("08:00:00")
+    const [minutosTolerancia, setMinutosTolerancia] = useState<number>(10)
+    const [horarioSaida, setHorarioSaida] = useState<string>("18:00:00")
     const [horarioSaidaFDS, setHorarioSaidaFDS] = useState<string>("")
 
-    // Step 4 is the final step, where the app sets up the cache and finishes the setup
     const [backendSetup, setBackendSetup] = useState(false);
 
+    async function Setup(
+        setBackendSetupFn: (value: boolean) => void,
+        appName: string,
+        uri?: string,
+    ) {
+        try {
+            await SetupDatabase(appName, uri);
+            await TauriApi.StartBackendServices();
+
+            const hasAdmin = await TauriApi.HasAdmin();
+            if (hasAdmin) {
+                setBackendSetupFn(true);
+            } else {
+                setSetupStep(3);
+            }
+
+            return true
+        } catch (e: any) {
+            throw new Error(e?.message ?? e);
+        }
+    }
+
     useEffect(() => {
-        // Assuming localStorage or another mechanism check if setup has already been completed
         if (localStorage.getItem("AppConfigured") === "true") {
             setBackendSetup(true)
-            return;
         }
     }, []);
 
@@ -120,114 +122,96 @@ export default function Splashscreen() {
     }, [backendSetup])
 
     useEffect(() => {
+        const values = [horarioEntrada, minutosTolerancia, horarioSaida];
 
-        const values = [
-            horarioEntrada,
-            minutosTolerancia,
-            horarioSaida
-        ];
-
-        // Check if a value is set, and if it is, create the localStorage item
         if (values.every(value => value !== "")) {
             localStorage.setItem("HorarioEntrada", horarioEntrada);
             localStorage.setItem("MinutosTolerancia", minutosTolerancia.toString());
             localStorage.setItem("HorarioSaida", horarioSaida);
             localStorage.setItem("HorarioSaidaFDS", horarioSaidaFDS);
         }
+    }, [horarioEntrada, minutosTolerancia, horarioSaida, horarioSaidaFDS])
 
-    }, [
-        horarioEntrada,
-        minutosTolerancia,
-        horarioSaida,
-        horarioSaidaFDS
-    ])
+    if (AppConfigured) {
+        return (
+            <SetupLoadingShell>
+                <div className="text-center">
+                    <p className="text-lg font-medium">
+                        {currentStep === 1 && "Iniciando aplicativo…"}
+                        {currentStep === 2 && "Conectando ao banco de dados…"}
+                        {currentStep === 3 && "Sincronizando equipe…"}
+                        {currentStep === 4 && "Tudo pronto!"}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        {currentStep === 4
+                            ? "Abrindo o terminal de ponto"
+                            : "Isso leva apenas alguns segundos"}
+                    </p>
+                </div>
+                <Progress value={progress} className="h-2"/>
+            </SetupLoadingShell>
+        );
+    }
 
     return (
-        <>
-            {
-                !AppConfigured ? (
-                    <>
-                        <div
-                            className="flex min-h-[100dvh] flex-col items-center justify-center bg-gradient-to-br from-[#f0f0f0] to-[#e0e0e0] dark:from-[#1a1a1a] dark:to-[#121212]">
-                            <div className="relative w-full max-w-md px-4 sm:px-6 lg:px-8">
-
-                                <div className="animate-fade-out">
-                                    <ClockIcon className="mx-auto h-16 w-16 text-primary"/>
+        <SetupShell setupStep={setupStep}>
+            {setupStep === 0 && (
+                <>
+                    <SetupStepHeader
+                        title="Controle de ponto simples para sua equipe"
+                        description="Configure o PontuAll em poucos passos. Cartão NFC, relatórios e gestão — gratuito para pequenas empresas."
+                    />
+                    <ul className="mb-8 space-y-4">
+                        {WELCOME_FEATURES.map((feature) => (
+                            <li key={feature.title} className="flex gap-3">
+                                <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+                                    <Check className="size-3"/>
+                                </span>
+                                <div>
+                                    <p className="text-sm font-medium">{feature.title}</p>
+                                    <p className="text-sm text-muted-foreground">{feature.desc}</p>
                                 </div>
+                            </li>
+                        ))}
+                    </ul>
+                    <Button className="w-full sm:w-auto" size="lg" onClick={() => setSetupStep(1)}>
+                        Começar configuração
+                    </Button>
+                </>
+            )}
 
-                                <div className="mt-8 space-y-6">
-                                    {
-                                        setupStep === 0 && (
-                                            <>
-                                                <div className="text-center">
-                                                    <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">
-                                                        Bem Vindo ao Pontuall!
-                                                    </h1>
-                                                    <p className="mt-2 text-muted-foreground">
-                                                        O aplicativo de ponto mais completo do mercado.
-                                                    </p>
-                                                </div>
-                                                <div className="flex flex-col gap-4">
-                                                    <Button className="w-full" onClick={() => setSetupStep(1)}>
-                                                        Começar
-                                                    </Button>
-                                                    <Link
-                                                        href="#"
-                                                        className="inline-flex w-full justify-center rounded-md border border-input bg-background px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm transition-colors hover:bg-accent hover:text-accent-foreground focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
-                                                        prefetch={false}
-                                                    >
-                                                        Saiba mais
-                                                    </Link>
-                                                </div>
-                                            </>
-                                        )
-                                    }
-                                    {
-                                        // Step 1 is the first step of the setup, where the main user sets the hour for entry, lunch break, return from lunch break, and clock out
-                                        setupStep === 1 && HoursSetup({
-                                            horarioEntrada,
-                                            setHorarioEntrada,
-                                            minutosTolerancia,
-                                            setMinutosTolerancia,
-                                            horarioSaida,
-                                            setHorarioSaida,
-                                            horarioSaidaFDS,
-                                            setHorarioSaidaFDS,
-                                            setSetupStep
-                                        })
-                                    }
-                                    {
-                                        setupStep === 2 && MongoDbSetup({
-                                            mongoDbUri,
-                                            appName,
-                                            setAppName,
-                                            setMongoDbUri,
-                                            setSetupStep,
-                                            setBackendSetup,
-                                            Setup
-                                        })
-                                    }
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                ) : (
-                    <div className="flex flex-col items-center justify-center h-screen bg-background">
-                        <div className="flex flex-col items-center space-y-6">
-                            <ClockIcon className="w-16 h-16 text-primary"/>
-                            <div className="text-2xl font-bold">
-                                {currentStep === 1 && "Iniciando Aplicativo..."}
-                                {currentStep === 2 && "Carregando banco de dados..."}
-                                {currentStep === 3 && "Carregando cache..."}
-                                {currentStep === 4 && "Finalizando..."}
-                            </div>
-                            <div className="w-full min-w-[300px] max-w-md">
-                                <Progress value={progress} className="bg-muted"/>
-                            </div>
-                        </div>
-                    </div>
-                )
-            }
-        </>
-    )
+            {setupStep === 1 && (
+                <HoursSetup
+                    horarioEntrada={horarioEntrada}
+                    setHorarioEntrada={setHorarioEntrada}
+                    minutosTolerancia={minutosTolerancia}
+                    setMinutosTolerancia={setMinutosTolerancia}
+                    horarioSaida={horarioSaida}
+                    setHorarioSaida={setHorarioSaida}
+                    horarioSaidaFDS={horarioSaidaFDS}
+                    setHorarioSaidaFDS={setHorarioSaidaFDS}
+                    setSetupStep={setSetupStep}
+                />
+            )}
+
+            {setupStep === 2 && (
+                <PostgresSetup
+                    postgresUri={postgresUri}
+                    appName={appName}
+                    setAppName={setAppName}
+                    setPostgresUri={setPostgresUri}
+                    setSetupStep={setSetupStep}
+                    setBackendSetup={setBackendSetup}
+                    Setup={Setup}
+                />
+            )}
+
+            {setupStep === 3 && (
+                <FirstUser
+                    setSetupStep={setSetupStep}
+                    onComplete={() => setBackendSetup(true)}
+                />
+            )}
+        </SetupShell>
+    );
 }

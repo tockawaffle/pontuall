@@ -3,16 +3,19 @@ import Layout from "@/components/component/layout"
 
 import "../../public/global.css"
 import ThemeProvider from "@/components/component/themeprovider";
-import {Toaster} from "@/components/ui/toaster";
+import {Toaster} from "@/components/ui/sonner";
+import {AppProvider} from "@/contexts/app-context";
 
 export default function App({Component, pageProps}: AppProps) {
     return (
         <>
             <Layout>
                 <ThemeProvider/>
-                <Component
-                    {...pageProps}
-                />
+                <AppProvider>
+                    <Component
+                        {...pageProps}
+                    />
+                </AppProvider>
                 <Toaster/>
             </Layout>
         </>

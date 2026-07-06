@@ -1,14 +1,15 @@
-import Label from "@/components/ui/label";
-import {Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from "@/components/ui/tooltip";
-import Input from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import {Button} from "@/components/ui/button";
 import React, {useState} from "react";
 import {Check, X} from "lucide-react";
+import TauriApi from "@/lib/Tauri";
+import SetupStepHeader from "@/components/splashscreen/SetupStepHeader";
+import {cn} from "@/lib/utils";
 
 type FirstUserProps = {
-    firstUser: FirstUser,
-    setFirstUser: React.Dispatch<React.SetStateAction<FirstUser>>,
-    setSetupStep: React.Dispatch<React.SetStateAction<number>>
+    setSetupStep: React.Dispatch<React.SetStateAction<number>>,
+    onComplete: () => void
 }
 
 interface PasswordRequirement {
@@ -16,137 +17,135 @@ interface PasswordRequirement {
     message: string
 }
 
+const passwordRequirements: PasswordRequirement[] = [
+    {regex: /.{10,}/, message: "Pelo menos 10 caracteres"},
+    {regex: /[A-Z]/, message: "Pelo menos uma letra maiúscula"},
+    {regex: /[a-z]/, message: "Pelo menos uma letra minúscula"},
+    {regex: /[0-9]/, message: "Pelo menos um número"},
+    {regex: /[^A-Za-z0-9]/, message: "Pelo menos um caractere especial"},
+]
+
 export default function FirstUser(
     {
-        firstUser,
-        setFirstUser,
-        setSetupStep
+        setSetupStep,
+        onComplete
     }: FirstUserProps
 ) {
+    const [name, setName] = useState("")
+    const [email, setEmail] = useState("")
+    const [password, setPassword] = useState("")
+    const [error, setError] = useState("")
+    const [busy, setBusy] = useState(false)
 
-    const [showTooltip, setShowTooltip] = useState(false)
+    const passwordOk = passwordRequirements.every(req => req.regex.test(password))
+    const canSubmit = name.trim() !== "" && email.trim() !== "" && passwordOk && !busy
 
-    const passwordRequirements: PasswordRequirement[] = [
-        {regex: /.{10,}/, message: "At least 10 characters long"},
-        {regex: /[A-Z]/, message: "At least one uppercase letter"},
-        {regex: /[a-z]/, message: "At least one lowercase letter"},
-        {regex: /[0-9]/, message: "At least one number"},
-        {regex: /[^A-Za-z0-9]/, message: "At least one special character"},
-    ]
-
-    // Fucking hate Typescript sometimes.
-    function checkEmptyKeys(): boolean {
-        return Object.keys(firstUser).some(key => {
-            //@ts-expect-error
-            if (typeof firstUser[key] === "object" && firstUser[key] !== null) {
-                //@ts-expect-error
-                return Object.keys(firstUser[key]).some(k => {
-                    //@ts-expect-error
-                    return firstUser[key][k] === ""
-                })
-            }
-            //@ts-expect-error
-            return firstUser[key] === ""
-        })
-    }
-
-    const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-        setFirstUser({
-            ...firstUser,
-            password: e.target.value
-        })
+    async function handleCreate() {
+        setError("")
+        setBusy(true)
+        try {
+            // Backend stores the session for the new admin; the main window
+            // picks it up via RestoreSession. No token is exposed to the webview.
+            await TauriApi.BootstrapAdmin(name.trim(), email.trim(), password, "Administrador")
+            onComplete()
+        } catch (e: any) {
+            setError(e?.message ?? "Não foi possível criar o administrador.")
+        } finally {
+            setBusy(false)
+        }
     }
 
     return (
-        <div className="mt-8 space-y-6">
-            <div className="text-center">
-                <h2 className="text-2xl font-bold tracking-tight text-foreground">
-                    Usuário Administrador
-                </h2>
-                <p className="mt-2 text-muted-foreground">
-                    O primeiro usuário é o administrador do sistema, podendo configurar e gerenciar o aplicativo com
-                    total
-                    liberdade.
-                </p>
-            </div>
-            <div className="flex flex-col gap-4">
+        <>
+            <SetupStepHeader
+                title="Usuário administrador"
+                description="Crie a conta que vai gerenciar funcionários, cartões e relatórios. Você pode adicionar outros administradores depois."
+            />
+            <div className="flex flex-col gap-5">
                 <div className={"grid gap-2"}>
-                    <Label htmlFor={"username"}>
-                        Nome do Usuário
+                    <Label htmlFor={"adminName"}>
+                        Nome
                     </Label>
                     <Input
-                        id="password"
-                        type="password"
-                        placeholder="Enter your password"
-                        value={
-                            firstUser.password
-                        }
-                        onChange={handlePasswordChange}
-                        onFocus={() => setShowTooltip(true)}
-                        onBlur={() => setShowTooltip(false)}
-                        className="pr-10"
+                        id="adminName"
+                        placeholder="Nome completo"
+                        value={name}
+                        onChange={(e) => setName(e.target.value)}
                     />
-
                 </div>
                 <div className={"grid gap-2"}>
-                    <Label htmlFor={"password"}>
-                        Senha
+                    <Label htmlFor={"adminEmail"}>
+                        E-mail
                     </Label>
-                    <TooltipProvider>
-                        <Tooltip open={showTooltip}>
-                            <TooltipTrigger asChild>
-                                <div className="relative">
-                                    <Input
-                                        id="password"
-                                        type="password"
-                                        placeholder="Enter your password"
-                                        value={firstUser.password}
-                                        onChange={handlePasswordChange}
-                                        onFocus={() => setShowTooltip(true)}
-                                        onBlur={() => setShowTooltip(false)}
-                                        className="pr-10"
-                                    />
-                                    {firstUser.password && (
-                                        <span className="absolute inset-y-0 right-0 flex items-center pr-3">
-                  {passwordRequirements.every(req => req.regex.test(firstUser.password)) ? (
-                      <Check className="h-5 w-5 text-green-500"/>
-                  ) : (
-                      <X className="h-5 w-5 text-red-500"/>
-                  )}
-                </span>
-                                    )}
-                                </div>
-                            </TooltipTrigger>
-                            <TooltipContent side="right" className="w-80">
-                                <div className="space-y-2">
-                                    <h3 className="font-semibold">Password must have:</h3>
-                                    <ul className="space-y-1">
-                                        {passwordRequirements.map((req, index) => (
-                                            <li key={index} className="flex items-center space-x-2">
-                                                {req.regex.test(firstUser.password) ? (
-                                                    <Check className="h-4 w-4 text-green-500"/>
-                                                ) : (
-                                                    <X className="h-4 w-4 text-red-500"/>
-                                                )}
-                                                <span>{req.message}</span>
-                                            </li>
-                                        ))}
-                                    </ul>
-                                </div>
-                            </TooltipContent>
-                        </Tooltip>
-                    </TooltipProvider>
+                    <Input
+                        id="adminEmail"
+                        type="email"
+                        placeholder="admin@empresa.com"
+                        value={email}
+                        onChange={(e) => setEmail(e.target.value)}
+                    />
                 </div>
-                <div className="flex gap-4 items-center">
-                    <Button onClick={() => setSetupStep(1)}>Voltar</Button>
-                    <Button onClick={() => {
+                <div className="grid gap-2">
+                    <Label htmlFor="adminPassword">Senha</Label>
+                    <div className="relative">
+                        <Input
+                            id="adminPassword"
+                            type="password"
+                            placeholder="Senha"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="pr-10"
+                            aria-describedby="admin-password-requirements"
+                        />
+                        {password && (
+                            <span className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3">
+                                {passwordOk ? (
+                                    <Check className="size-5 text-success"/>
+                                ) : (
+                                    <X className="size-5 text-destructive"/>
+                                )}
+                            </span>
+                        )}
+                    </div>
+                    <div
+                        id="admin-password-requirements"
+                        className="rounded-lg border border-border bg-muted/30 p-3"
+                    >
+                        <p className="mb-2 text-xs font-medium text-muted-foreground">
+                            A senha precisa ter:
+                        </p>
+                        <ul className="space-y-1.5">
+                            {passwordRequirements.map((req, index) => {
+                                const met = req.regex.test(password);
 
-                        setSetupStep(3)
-                    }} disabled={
-                        checkEmptyKeys()
-                    }>Continuar</Button>
+                                return (
+                                    <li key={index} className="flex items-center gap-2 text-sm">
+                                        {met ? (
+                                            <Check className="size-4 shrink-0 text-success"/>
+                                        ) : (
+                                            <X className="size-4 shrink-0 text-muted-foreground"/>
+                                        )}
+                                        <span className={cn(met ? "text-foreground" : "text-muted-foreground")}>
+                                            {req.message}
+                                        </span>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    </div>
+                </div>
+                {
+                    error && (
+                        <span className="text-sm text-red-500">{error}</span>
+                    )
+                }
+                <div className="flex gap-3 pt-2">
+                    <Button variant="outline" disabled={busy} onClick={() => setSetupStep(2)}>Voltar</Button>
+                    <Button className="min-w-32" disabled={!canSubmit} onClick={handleCreate}>
+                        {busy ? "Criando…" : "Concluir"}
+                    </Button>
                 </div>
             </div>
-        </div>
+        </>
     )
 }
