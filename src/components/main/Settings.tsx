@@ -339,7 +339,7 @@ export default function SettingsPage() {
                 </p>
             </div>
 
-            <Card className="border-primary/20 bg-gradient-to-br from-primary/5 to-transparent">
+            <Card className="border-primary/20 bg-linear-to-br from-primary/5 to-transparent">
                 <CardHeader className="pb-3">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div>
