@@ -77,9 +77,10 @@ pub(crate) async fn provision_card(
     service: State<'_, Arc<CardService>>,
     db: State<'_, DbState>,
     employee_id: String,
+    force: bool,
 ) -> Result<CardInfo, CardError> {
     guard::require_current(&app, PermissionAction::ProvisionCard).await?;
-    let card = flows::provision(&service, &db, &employee_id).await?;
+    let card = flows::provision(&service, &db, &employee_id, force).await?;
     Ok(CardInfo {
         id: card.id,
         uid: card.uid,
@@ -96,9 +97,10 @@ pub(crate) async fn reprovision_card(
     service: State<'_, Arc<CardService>>,
     db: State<'_, DbState>,
     employee_id: String,
+    force: bool,
 ) -> Result<CardInfo, CardError> {
     guard::require_current(&app, PermissionAction::ProvisionCard).await?;
-    let card = flows::reprovision(&service, &db, &employee_id).await?;
+    let card = flows::reprovision(&service, &db, &employee_id, force).await?;
     Ok(CardInfo {
         id: card.id,
         uid: card.uid,

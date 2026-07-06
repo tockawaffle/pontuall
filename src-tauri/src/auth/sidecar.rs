@@ -42,6 +42,11 @@ pub(crate) async fn start(app: &AppHandle) -> Result<(), AuthError> {
         return Ok(());
     }
 
+    // Refuse to hand DATABASE_URL and the auth secret to a sidecar binary
+    // that was swapped or tampered with on disk.
+    #[cfg(windows)]
+    crate::auth::signature::verify_sidecar()?;
+
     let db_url = database_url()?;
     let secret = auth_secret()?;
 

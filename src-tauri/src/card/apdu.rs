@@ -8,9 +8,8 @@ pub(crate) const KEY_SIZE: usize = 6;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum KeyType {
-    // Key A is defined for completeness; provisioned cards lock data blocks
-    // to Key B, so only B is used operationally.
-    #[allow(dead_code)]
+    // Provisioned cards lock data blocks to Key B; Key A is only used when
+    // force-formatting a foreign card whose trailer we must reclaim.
     A = 0x60,
     B = 0x61,
 }

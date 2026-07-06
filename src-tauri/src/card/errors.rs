@@ -19,6 +19,10 @@ pub(crate) enum CardError {
     Timeout,
     #[error("{0}")]
     Conflict(String),
+    /// The card is not blank and isn't provisioned by this system; it can only
+    /// be reused by force-formatting it first.
+    #[error("{0}")]
+    NotBlank(String),
     #[error("{0}")]
     Internal(String),
     #[error(transparent)]
@@ -54,6 +58,7 @@ impl CardError {
             CardError::Cancelled => "cancelled",
             CardError::Timeout => "timeout",
             CardError::Conflict(_) => "conflict",
+            CardError::NotBlank(_) => "card_not_blank",
             CardError::Internal(_) => "internal",
             CardError::Db(_) => "db_error",
             CardError::Auth(_) => "auth_error",

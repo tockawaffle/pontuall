@@ -4,6 +4,8 @@ pub(crate) mod error;
 pub(crate) mod guard;
 pub(crate) mod permissions;
 pub(crate) mod sidecar;
+#[cfg(windows)]
+pub(crate) mod signature;
 
 use std::collections::HashMap;
 use std::time::Instant;

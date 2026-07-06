@@ -7,6 +7,16 @@ import {
     DialogTitle,
 } from "@/components/ui/dialog";
 import {Button} from "@/components/ui/button";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import {SpinnerIcon, SuccessCircle} from "@/components/component/icons";
 import {Label} from "@/components/ui/label";
 import {Input} from "@/components/ui/input";
@@ -86,6 +96,7 @@ export default function AddEmployee({
     const [accessLevel, setAccessLevel] = useState<PontuallAccessLevel>("employee");
     const [smtpConfigured, setSmtpConfigured] = useState(false);
     const [error, setError] = useState("");
+    const [formatPromptOpen, setFormatPromptOpen] = useState(false);
 
     useEffect(() => {
         if (open) {
@@ -106,6 +117,7 @@ export default function AddEmployee({
         setForm({...EMPTY_FORM, lunch_time: defaultLunchTime});
         setAccessLevel("employee");
         setError("");
+        setFormatPromptOpen(false);
     }
 
     function handleClose() {
@@ -166,19 +178,28 @@ export default function AddEmployee({
         }
     }
 
-    async function handleProvisionCard() {
+    async function handleProvisionCard(force = false) {
         if (!createdEmployeeId) return;
         setError("");
+        setFormatPromptOpen(false);
         setCardProvisioning(true);
         try {
-            await TauriApi.ProvisionCard(createdEmployeeId);
+            await TauriApi.ProvisionCard(createdEmployeeId, force);
             toast.success("Cartão vinculado", {
                 description: `${createdEmployeeName} já pode bater ponto com o cartão.`,
             });
             handleClose();
         } catch (e: unknown) {
-            const message = e instanceof Error ? e.message : "Não foi possível provisionar o cartão.";
-            setError(message);
+            const code = (e as {code?: string})?.code;
+            const message =
+                (e as {message?: string})?.message ??
+                (e instanceof Error ? e.message : "Não foi possível provisionar o cartão.");
+            // A non-blank/foreign card can be reused if the admin agrees to wipe it.
+            if (code === "card_not_blank") {
+                setFormatPromptOpen(true);
+            } else {
+                setError(message);
+            }
         } finally {
             setCardProvisioning(false);
         }
@@ -416,6 +437,29 @@ export default function AddEmployee({
                     )}
                 </DialogFooter>
             </DialogContent>
+
+            <AlertDialog open={formatPromptOpen} onOpenChange={setFormatPromptOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Formatar e vincular este cartão?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            O cartão não está em branco ou pertence a outro sistema. Você pode
+                            formatá-lo e vinculá-lo a <strong>{createdEmployeeName}</strong>, mas
+                            isso apaga todo o conteúdo atual do cartão. Continue apenas se o cartão
+                            for seu.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            variant="destructive"
+                            onClick={() => void handleProvisionCard(true)}
+                        >
+                            Formatar e vincular
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
         </Dialog>
     );
 }

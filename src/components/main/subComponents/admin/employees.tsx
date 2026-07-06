@@ -108,6 +108,7 @@ export default function Employees(
     const [deleteDayLoading, setDeleteDayLoading] = useState(false);
     const [cardModalOpen, setCardModalOpen] = useState(false);
     const [cardProvisioning, setCardProvisioning] = useState(false);
+    const [formatPromptOpen, setFormatPromptOpen] = useState(false);
 
     useEffect(() => {
         if (!selectedEmployee || selectedDate === "") {
@@ -269,18 +270,27 @@ export default function Employees(
         }
     }
 
-    async function handleReprovisionCard() {
+    async function handleReprovisionCard(force = false) {
         if (!selectedEmployee) return;
+        setFormatPromptOpen(false);
         setCardProvisioning(true);
         try {
-            await TauriApi.ReprovisionCard(selectedEmployee.id);
+            await TauriApi.ReprovisionCard(selectedEmployee.id, force);
             toast.success("Novo cartão vinculado", {
                 description: `Os cartões anteriores de ${selectedEmployee.name} foram bloqueados.`,
             });
             setCardModalOpen(false);
         } catch (e: unknown) {
-            const message = e instanceof Error ? e.message : String(e);
-            toast.error(message || "Não foi possível vincular o novo cartão.");
+            const code = (e as {code?: string})?.code;
+            const message =
+                (e as {message?: string})?.message ??
+                (e instanceof Error ? e.message : String(e));
+            // Offer to wipe a non-blank/foreign card instead of failing outright.
+            if (code === "card_not_blank") {
+                setFormatPromptOpen(true);
+            } else {
+                toast.error(message || "Não foi possível vincular o novo cartão.");
+            }
         } finally {
             setCardProvisioning(false);
         }
@@ -292,6 +302,7 @@ export default function Employees(
         }
         setCardModalOpen(false);
         setCardProvisioning(false);
+        setFormatPromptOpen(false);
     }
 
     const editPerms = capabilities ? canEditPunches(capabilities) : false;
@@ -676,6 +687,28 @@ export default function Employees(
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+            <AlertDialog open={formatPromptOpen} onOpenChange={setFormatPromptOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Formatar e vincular este cartão?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            O cartão não está em branco ou pertence a outro sistema. Você pode
+                            formatá-lo e vinculá-lo a <strong>{selectedEmployee?.name}</strong>, mas
+                            isso apaga todo o conteúdo atual do cartão. Continue apenas se o cartão
+                            for seu.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction
+                            variant="destructive"
+                            onClick={() => void handleReprovisionCard(true)}
+                        >
+                            Formatar e vincular
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
             <Dialog
                 open={editUserModal}
                 onOpenChange={(open) => {

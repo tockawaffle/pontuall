@@ -37,6 +37,9 @@
 		],
 		"externalBin": [
 			"binaries/pontuall-auth"
-		]
+		],
+		"windows": {
+			"signCommand": "pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/sign.ps1 %1"
+		}
 	}
 }

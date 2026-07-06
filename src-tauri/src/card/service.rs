@@ -156,6 +156,7 @@ impl CardService {
         self: &Arc<Self>,
         keys: CardKeys,
         initial_token: [u8; BLOCK_SIZE],
+        force: bool,
     ) -> Result<Vec<u8>, CardError> {
         self.with_ctx(move |ctx, cancel| {
             let reader = require_reader(ctx)?;
@@ -168,13 +169,21 @@ impl CardService {
 
             // Blank card authenticates with the factory key; a re-provision
             // authenticates with the current derived Key B.
-            if authenticate(&tx, layout::TRAILER_BLOCK, &crate::card::keys::FACTORY_KEY).is_err() {
-                authenticate(&tx, layout::TRAILER_BLOCK, &keys.key_b).map_err(|_| {
-                    CardError::Conflict("cartão não está em branco ou é de outro sistema".into())
-                })?;
-            }
+            let owned = authenticate(&tx, layout::TRAILER_BLOCK, &crate::card::keys::FACTORY_KEY)
+                .is_ok()
+                || authenticate(&tx, layout::TRAILER_BLOCK, &keys.key_b).is_ok();
 
-            write_block(&tx, layout::TRAILER_BLOCK, &layout::provisioned_trailer(&keys))?;
+            if owned {
+                write_block(&tx, layout::TRAILER_BLOCK, &layout::provisioned_trailer(&keys))?;
+            } else if force {
+                // Card isn't blank and isn't ours: try known default keys to
+                // regain control of the sector trailer and reformat it.
+                force_format_trailer(&tx, &keys)?;
+            } else {
+                return Err(CardError::NotBlank(
+                    "cartão não está em branco ou é de outro sistema".into(),
+                ));
+            }
 
             // Re-authenticate with the new Key B before touching data blocks.
             authenticate(&tx, layout::TOKEN_BLOCK, &keys.key_b)?;
@@ -279,10 +288,11 @@ fn ensure_mifare(tx: &pcsc::Transaction) -> Result<(), CardError> {
     }
 }
 
-fn authenticate(
+fn authenticate_kt(
     tx: &pcsc::Transaction,
     block: u8,
     key: &[u8; KEY_SIZE],
+    key_type: KeyType,
 ) -> Result<(), CardError> {
     let mut buf = [0u8; 64];
     // Reader key slots are volatile; load the key immediately before auth.
@@ -290,9 +300,45 @@ fn authenticate(
     apdu::parse_response(response)?;
 
     let mut buf = [0u8; 64];
-    let response = tx.transmit(&apdu::authenticate(block, KeyType::B, 0), &mut buf)?;
+    let response = tx.transmit(&apdu::authenticate(block, key_type, 0), &mut buf)?;
     apdu::parse_response(response)?;
     Ok(())
+}
+
+fn authenticate(
+    tx: &pcsc::Transaction,
+    block: u8,
+    key: &[u8; KEY_SIZE],
+) -> Result<(), CardError> {
+    authenticate_kt(tx, block, key, KeyType::B)
+}
+
+/// Best-effort reclaim of a non-blank foreign card: walk a dictionary of
+/// well-known default keys (with both Key A and Key B) until one authenticates
+/// the sector trailer AND permits overwriting it with our provisioned trailer.
+fn force_format_trailer(tx: &pcsc::Transaction, keys: &CardKeys) -> Result<(), CardError> {
+    let provisioned = layout::provisioned_trailer(keys);
+
+    let mut candidates: Vec<[u8; KEY_SIZE]> =
+        vec![crate::card::keys::FACTORY_KEY, keys.key_a, keys.key_b];
+    candidates.extend_from_slice(crate::card::keys::COMMON_KEYS);
+
+    for key in &candidates {
+        for key_type in [KeyType::A, KeyType::B] {
+            if authenticate_kt(tx, layout::TRAILER_BLOCK, key, key_type).is_err() {
+                continue;
+            }
+            // Auth succeeded; the access bits still decide whether this key slot
+            // may rewrite the trailer, so only a successful write counts.
+            if write_block(tx, layout::TRAILER_BLOCK, &provisioned).is_ok() {
+                return Ok(());
+            }
+        }
+    }
+
+    Err(CardError::Conflict(
+        "não foi possível formatar o cartão: as chaves de segurança são desconhecidas".into(),
+    ))
 }
 
 fn read_block(tx: &pcsc::Transaction, block: u8) -> Result<[u8; BLOCK_SIZE], CardError> {

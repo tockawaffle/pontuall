@@ -156,6 +156,7 @@ pub(crate) async fn provision(
     service: &Arc<CardService>,
     db: &DbState,
     employee_id: &str,
+    force: bool,
 ) -> Result<Card, CardError> {
     // Read UID first (blank card authenticates with the factory key inside
     // service.provision), so derive keys after we have it.
@@ -172,7 +173,7 @@ pub(crate) async fn provision(
 
     let keys = card_keys(&probe_uid)?;
     let initial_token = random_token();
-    let uid = service.provision(keys, initial_token).await?;
+    let uid = service.provision(keys, initial_token, force).await?;
     let uid_hex = hex::encode(&uid);
 
     let card = Card {
@@ -198,8 +199,9 @@ pub(crate) async fn reprovision(
     service: &Arc<CardService>,
     db: &DbState,
     employee_id: &str,
+    force: bool,
 ) -> Result<Card, CardError> {
-    let new_card = provision(service, db, employee_id).await?;
+    let new_card = provision(service, db, employee_id, force).await?;
 
     for mut old in cards::find_by_employee(db, employee_id).await? {
         if old.id == new_card.id || old.status == "blocked" {

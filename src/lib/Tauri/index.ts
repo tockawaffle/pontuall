@@ -22,13 +22,17 @@ export default class TauriApi {
         return this.command<string>("gen_id", {});
     }
 
-    public static async ProvisionCard(employeeId: string): Promise<CardInfo> {
-        return this.command<CardInfo>("provision_card", {employeeId});
+    /** Provisions a card. Pass `force` to reformat a non-blank/foreign card. */
+    public static async ProvisionCard(employeeId: string, force = false): Promise<CardInfo> {
+        return this.command<CardInfo>("provision_card", {employeeId, force});
     }
 
-    /** Provisions a replacement card and blocks the employee's previous cards. */
-    public static async ReprovisionCard(employeeId: string): Promise<CardInfo> {
-        return this.command<CardInfo>("reprovision_card", {employeeId});
+    /**
+     * Provisions a replacement card and blocks the employee's previous cards.
+     * Pass `force` to reformat a non-blank/foreign card.
+     */
+    public static async ReprovisionCard(employeeId: string, force = false): Promise<CardInfo> {
+        return this.command<CardInfo>("reprovision_card", {employeeId, force});
     }
 
     public static async UnprovisionCard(cardId: string): Promise<void> {

@@ -4,22 +4,13 @@ on:
   push:
     branches:
       - master
-    workflow_dispatch:
-# This is the example from the readme.
-# On each push to the `release` branch it will create or update a GitHub release, build your app, and upload the artifacts to the release.
+  workflow_dispatch:
 
 jobs:
   publish-tauri:
     permissions:
       contents: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: "windows-latest"
-            args: ""
-
-    runs-on: ${{ matrix.platform }}
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -30,20 +21,34 @@ jobs:
 
       - name: install Rust stable
         uses: dtolnay/rust-toolchain@stable
-        with:
-          # Those targets are only used on macos runners so it's in an `if` to slightly speed up windows and linux builds.
-          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
-      - name: install dependencies (ubuntu only)
-        if: matrix.platform == 'ubuntu-22.04' # This must match the platform value defined above.
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.0-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-        # webkitgtk 4.0 is for Tauri v1 - webkitgtk 4.1 is for Tauri v2.
-        # You can remove the one that doesn't apply to your app to speed up the workflow a bit.
+      - name: setup bun
+        uses: oven-sh/setup-bun@v2
 
       - name: install frontend dependencies
-        run: npm install # change this to npm, pnpm or bun depending on which one you use.
+        run: bun install
+
+      # Imports the self-signed code-signing certificate so the bundle is
+      # Authenticode-signed and the app's sidecar verification is compiled in.
+      # Without the secrets the build still succeeds, but unsigned and with
+      # the verification disabled (see src-tauri/build.rs).
+      - name: import signing certificate
+        if: ${{ secrets.SIGNING_CERT_PFX_BASE64 != '' }}
+        env:
+          SIGNING_CERT_PFX_BASE64: ${{ secrets.SIGNING_CERT_PFX_BASE64 }}
+          SIGNING_CERT_PFX_PASSWORD: ${{ secrets.SIGNING_CERT_PFX_PASSWORD }}
+        shell: pwsh
+        run: |
+          $pfx = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_CERT_PFX_BASE64))
+          $password = ConvertTo-SecureString $env:SIGNING_CERT_PFX_PASSWORD -AsPlainText -Force
+          $cert = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $password
+          Remove-Item $pfx
+          $sha256 = [System.Security.Cryptography.SHA256]::Create()
+          $fingerprint = ([System.BitConverter]::ToString($sha256.ComputeHash($cert.RawData)) -replace "-", "").ToLowerInvariant()
+          New-Item -ItemType Directory -Force src-tauri\signing | Out-Null
+          Set-Content -Path src-tauri\signing\cert-fingerprint.txt -Value $fingerprint -NoNewline
+          Write-Host "signing certificate imported; fingerprint $fingerprint"
 
       - uses: tauri-apps/tauri-action@v0
         env:
@@ -54,4 +59,3 @@ jobs:
           releaseBody: "See the assets to download this version and install."
           releaseDraft: true
           prerelease: false
-          args: ${{ matrix.args }}

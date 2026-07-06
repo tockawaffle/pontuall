@@ -4,11 +4,13 @@ import {useRouter} from "next/router";
 import {
     ArrowLeft,
     BarChart3,
+    Clock,
     FileText,
     KeyRound,
     Layers,
     ScrollText,
     Search,
+    Settings2,
     UserPlus,
     Users,
 } from "lucide-react";
@@ -26,6 +28,7 @@ import {Button} from "@/components/ui/button";
 import {Badge} from "@/components/ui/badge";
 import {Tabs, TabsContent, TabsList, TabsTrigger} from "@/components/ui/tabs";
 import {Checkbox} from "@/components/ui/checkbox";
+import {Switch} from "@/components/ui/switch";
 import {
     Empty,
     EmptyContent,
@@ -74,7 +77,7 @@ function StatCard({
 
 export default function AdminPage() {
     const router = useRouter();
-    const {users, setUsers, workHours, refreshUsers, sessionStatus} = useApp();
+    const {users, setUsers, workHours, setWorkHours, refreshUsers, sessionStatus} = useApp();
 
     const [capabilities, setCapabilities] = useState<SessionCapabilities | null>(null);
     const [searchTerm, setSearchTerm] = useState("");
@@ -99,6 +102,21 @@ export default function AdminPage() {
         total_hours: "",
     });
 
+    const [manualPunchEnabled, setManualPunchEnabled] = useState(false);
+    const [smtpForm, setSmtpForm] = useState({
+        host: "",
+        port: "587",
+        secure: false,
+        user: "",
+        pass: "",
+        from: "",
+    });
+    const [smtpSaving, setSmtpSaving] = useState(false);
+    const [smtpTestTo, setSmtpTestTo] = useState("");
+    const [smtpTesting, setSmtpTesting] = useState(false);
+    const [advancedForm, setAdvancedForm] = useState({port: "3435", publicUrl: ""});
+    const [advancedSaving, setAdvancedSaving] = useState(false);
+
     const today = getTodayKey();
 
     useEffect(() => {
@@ -120,6 +138,34 @@ export default function AdminPage() {
                 .catch(() => setCapabilities(null));
         });
     }, [sessionStatus, router]);
+
+    useEffect(() => {
+        if (!authChecked) return;
+        TauriApi.GetManualPunchStatus()
+            .then((status) => setManualPunchEnabled(status.enabled))
+            .catch(() => setManualPunchEnabled(false));
+        TauriApi.GetSmtpConfig()
+            .then((config) => {
+                if (!config) return;
+                setSmtpForm((prev) => ({
+                    ...prev,
+                    host: config.host,
+                    port: String(config.port || 587),
+                    secure: config.secure,
+                    user: config.user,
+                    from: config.from,
+                }));
+            })
+            .catch(() => undefined);
+        TauriApi.GetAdvancedConfig()
+            .then((config) =>
+                setAdvancedForm({
+                    port: String(config.port || 3435),
+                    publicUrl: config.publicUrl,
+                })
+            )
+            .catch(() => undefined);
+    }, [authChecked]);
 
     const filteredEmployees = searchTerm
         ? users.filter(
@@ -249,6 +295,80 @@ export default function AdminPage() {
         }
     }
 
+    async function handleToggleManualPunch(enabled: boolean) {
+        try {
+            await TauriApi.SetManualPunchEnabled(enabled);
+            setManualPunchEnabled(enabled);
+            toast.success(enabled ? "Ponto sem cartão ativado" : "Ponto sem cartão desativado");
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            toast.error(message || "Não foi possível atualizar a configuração.");
+        }
+    }
+
+    async function handleSaveSmtp() {
+        setSmtpSaving(true);
+        try {
+            await TauriApi.SetSmtpConfig({
+                host: smtpForm.host,
+                port: Number(smtpForm.port) || 587,
+                secure: smtpForm.secure,
+                user: smtpForm.user,
+                pass: smtpForm.pass,
+                from: smtpForm.from,
+            });
+            setSmtpForm((prev) => ({...prev, pass: ""}));
+            toast.success("Configuração SMTP salva");
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            toast.error(message || "Não foi possível salvar o SMTP.");
+        } finally {
+            setSmtpSaving(false);
+        }
+    }
+
+    async function handleTestSmtp() {
+        if (!smtpTestTo.trim()) return;
+        setSmtpTesting(true);
+        try {
+            if (smtpForm.pass.trim()) {
+                await TauriApi.SetSmtpConfig({
+                    host: smtpForm.host,
+                    port: Number(smtpForm.port) || 587,
+                    secure: smtpForm.secure,
+                    user: smtpForm.user,
+                    pass: smtpForm.pass,
+                    from: smtpForm.from,
+                });
+            }
+            await TauriApi.TestSmtpConfig(smtpTestTo.trim());
+            toast.success("E-mail de teste enviado");
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            toast.error(message || "Falha ao enviar e-mail de teste.");
+        } finally {
+            setSmtpTesting(false);
+        }
+    }
+
+    async function handleSaveAdvanced() {
+        setAdvancedSaving(true);
+        try {
+            await TauriApi.SetAdvancedConfig(
+                Number(advancedForm.port) || 3435,
+                advancedForm.publicUrl,
+            );
+            toast.success("Configuração avançada salva", {
+                description: "A porta passa a valer após reiniciar o aplicativo.",
+            });
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            toast.error(message || "Não foi possível salvar a configuração.");
+        } finally {
+            setAdvancedSaving(false);
+        }
+    }
+
     if (sessionStatus === "loading" || (!authChecked && !accessDenied)) {
         return (
             <div className="flex min-h-[50vh] items-center justify-center text-muted-foreground">
@@ -338,6 +458,12 @@ export default function AdminPage() {
                     </TabsTrigger>
                     <TabsTrigger value="reports" className="gap-1.5">
                         <FileText className="h-4 w-4"/> Relatórios
+                    </TabsTrigger>
+                    <TabsTrigger value="jornada" className="gap-1.5">
+                        <Clock className="h-4 w-4"/> Jornada
+                    </TabsTrigger>
+                    <TabsTrigger value="security" className="gap-1.5">
+                        <Settings2 className="h-4 w-4"/> Segurança
                     </TabsTrigger>
                     {capabilities?.hierarchyManage && (
                         <TabsTrigger value="audit" className="gap-1.5">
@@ -432,17 +558,20 @@ export default function AdminPage() {
                     <Card>
                         <CardHeader>
                             <CardTitle className="text-base flex items-center gap-2">
-                                <UserPlus className="h-4 w-4"/> Configuração operacional
+                                <Clock className="h-4 w-4"/> Configuração operacional
                             </CardTitle>
+                            <CardDescription>
+                                Horários usados para validar atrasos, saídas antecipadas e relatórios Excel.
+                            </CardDescription>
                         </CardHeader>
-                        <CardContent className="text-sm text-muted-foreground space-y-2">
-                            <p>
-                                Horários e tolerância vêm de{" "}
-                                <Button variant="link" className="h-auto p-0" onClick={() => router.push("/settings?tab=schedule")}>
-                                    Configurações → Jornada
-                                </Button>
-                                . Relatórios Excel usam esses valores automaticamente.
+                        <CardContent className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-sm text-muted-foreground">
+                                Jornada atual: {workHours.entry.slice(0, 5)} – {workHours.exit.slice(0, 5)}
+                                {" "}(tolerância: {workHours.toleranceMinutes} min)
                             </p>
+                            <Button variant="secondary" size="sm" onClick={() => setActiveTab("jornada")}>
+                                Ajustar jornada
+                            </Button>
                         </CardContent>
                     </Card>
                 </TabsContent>
@@ -537,6 +666,241 @@ export default function AdminPage() {
                             >
                                 Gerar e salvar Excel
                             </Button>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="jornada" className="mt-6">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Horários da jornada</CardTitle>
+                            <CardDescription>
+                                Usados para validar atrasos, saídas antecipadas e relatórios Excel.
+                                Alterações são salvas automaticamente.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-4 sm:grid-cols-2 max-w-2xl">
+                            <div className="space-y-2">
+                                <Label htmlFor="admin-entry">Entrada padrão</Label>
+                                <Input
+                                    id="admin-entry"
+                                    type="time"
+                                    value={workHours.entry.slice(0, 5)}
+                                    onChange={(e) =>
+                                        setWorkHours((prev) => ({...prev, entry: `${e.target.value}:00`}))
+                                    }
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="admin-exit">Saída padrão</Label>
+                                <Input
+                                    id="admin-exit"
+                                    type="time"
+                                    value={workHours.exit.slice(0, 5)}
+                                    onChange={(e) =>
+                                        setWorkHours((prev) => ({...prev, exit: `${e.target.value}:00`}))
+                                    }
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="admin-exit-weekend">Saída fim de semana</Label>
+                                <Input
+                                    id="admin-exit-weekend"
+                                    type="time"
+                                    value={workHours.exitWeekend.slice(0, 5)}
+                                    onChange={(e) =>
+                                        setWorkHours((prev) => ({
+                                            ...prev,
+                                            exitWeekend: `${e.target.value}:00`,
+                                        }))
+                                    }
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="admin-tolerance">Tolerância (minutos)</Label>
+                                <Input
+                                    id="admin-tolerance"
+                                    type="number"
+                                    min={0}
+                                    max={60}
+                                    value={workHours.toleranceMinutes}
+                                    onChange={(e) =>
+                                        setWorkHours((prev) => ({
+                                            ...prev,
+                                            toleranceMinutes: Number.parseInt(e.target.value, 10) || 0,
+                                        }))
+                                    }
+                                />
+                            </div>
+                        </CardContent>
+                    </Card>
+                </TabsContent>
+
+                <TabsContent value="security" className="mt-6 space-y-4">
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Ponto sem cartão</CardTitle>
+                            <CardDescription>
+                                Permite batida manual via código enviado por e-mail. Requer SMTP configurado.
+                                Desativado por padrão — use apenas como exceção quando o cartão NFC não estiver disponível.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="flex items-center justify-between rounded-lg border p-4">
+                            <div>
+                                <p className="font-medium">Permitir ponto sem cartão</p>
+                                <p className="text-sm text-muted-foreground">
+                                    Código de uso único, expira em 5 minutos, com limite de tentativas.
+                                </p>
+                            </div>
+                            <Switch
+                                checked={manualPunchEnabled}
+                                onCheckedChange={(checked) => void handleToggleManualPunch(checked)}
+                            />
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Servidor de e-mail (SMTP)</CardTitle>
+                            <CardDescription>
+                                Credenciais armazenadas com segurança no sistema. Necessário para enviar códigos OTP.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-2 sm:col-span-2">
+                                <Label htmlFor="smtp-host">Host</Label>
+                                <Input
+                                    id="smtp-host"
+                                    placeholder="smtp.seudominio.com"
+                                    value={smtpForm.host}
+                                    onChange={(e) => setSmtpForm((p) => ({...p, host: e.target.value}))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="smtp-port">Porta</Label>
+                                <Input
+                                    id="smtp-port"
+                                    type="number"
+                                    value={smtpForm.port}
+                                    onChange={(e) => setSmtpForm((p) => ({...p, port: e.target.value}))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="smtp-from">Remetente</Label>
+                                <Input
+                                    id="smtp-from"
+                                    placeholder="PontuAll <noreply@empresa.com>"
+                                    value={smtpForm.from}
+                                    onChange={(e) => setSmtpForm((p) => ({...p, from: e.target.value}))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="smtp-user">Usuário</Label>
+                                <Input
+                                    id="smtp-user"
+                                    value={smtpForm.user}
+                                    onChange={(e) => setSmtpForm((p) => ({...p, user: e.target.value}))}
+                                />
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="smtp-pass">Senha</Label>
+                                <Input
+                                    id="smtp-pass"
+                                    type="password"
+                                    placeholder="Deixe em branco para manter a atual"
+                                    value={smtpForm.pass}
+                                    onChange={(e) => setSmtpForm((p) => ({...p, pass: e.target.value}))}
+                                />
+                            </div>
+                            <div className="flex items-center gap-2 sm:col-span-2">
+                                <Switch
+                                    id="smtp-secure"
+                                    checked={smtpForm.secure}
+                                    onCheckedChange={(checked) =>
+                                        setSmtpForm((p) => ({...p, secure: checked}))
+                                    }
+                                />
+                                <Label htmlFor="smtp-secure">Conexão segura (TLS/SSL)</Label>
+                            </div>
+                            <div className="flex flex-wrap gap-2 sm:col-span-2">
+                                <Button onClick={() => void handleSaveSmtp()} disabled={smtpSaving}>
+                                    {smtpSaving ? "Salvando…" : "Salvar SMTP"}
+                                </Button>
+                            </div>
+                            <div className="space-y-2 sm:col-span-2 border-t pt-4">
+                                <Label htmlFor="smtp-test-to">E-mail de teste</Label>
+                                <div className="flex flex-wrap gap-2">
+                                    <Input
+                                        id="smtp-test-to"
+                                        type="email"
+                                        className="max-w-sm"
+                                        placeholder="admin@empresa.com"
+                                        value={smtpTestTo}
+                                        onChange={(e) => setSmtpTestTo(e.target.value)}
+                                    />
+                                    <Button
+                                        variant="outline"
+                                        disabled={smtpTesting || !smtpTestTo.trim()}
+                                        onClick={() => void handleTestSmtp()}
+                                    >
+                                        {smtpTesting ? "Enviando…" : "Enviar teste"}
+                                    </Button>
+                                </div>
+                            </div>
+                        </CardContent>
+                    </Card>
+
+                    <Card>
+                        <CardHeader>
+                            <CardTitle>Avançado — rede e links de senha</CardTitle>
+                            <CardDescription>
+                                O serviço de autenticação fica acessível na rede para que
+                                funcionários abram o link de definição de senha em seus
+                                próprios aparelhos. Sem endereço público configurado, os
+                                links usam o IP local desta máquina automaticamente.
+                            </CardDescription>
+                        </CardHeader>
+                        <CardContent className="grid gap-4 sm:grid-cols-2">
+                            <div className="space-y-2">
+                                <Label htmlFor="adv-port">Porta do serviço</Label>
+                                <Input
+                                    id="adv-port"
+                                    type="number"
+                                    min={1024}
+                                    max={65535}
+                                    value={advancedForm.port}
+                                    onChange={(e) =>
+                                        setAdvancedForm((p) => ({...p, port: e.target.value}))
+                                    }
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Padrão: 3435. Exige reiniciar o aplicativo.
+                                </p>
+                            </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="adv-public-url">Endereço público (opcional)</Label>
+                                <Input
+                                    id="adv-public-url"
+                                    type="url"
+                                    placeholder="https://ponto.suaempresa.com.br"
+                                    value={advancedForm.publicUrl}
+                                    onChange={(e) =>
+                                        setAdvancedForm((p) => ({...p, publicUrl: e.target.value}))
+                                    }
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Domínio ou proxy que aponta para esta máquina. Vale
+                                    imediatamente para novos links.
+                                </p>
+                            </div>
+                            <div className="sm:col-span-2">
+                                <Button
+                                    onClick={() => void handleSaveAdvanced()}
+                                    disabled={advancedSaving}
+                                >
+                                    {advancedSaving ? "Salvando…" : "Salvar avançado"}
+                                </Button>
+                            </div>
                         </CardContent>
                     </Card>
                 </TabsContent>
