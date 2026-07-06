@@ -33,12 +33,15 @@ jobs:
       # Without the secrets the build still succeeds, but unsigned and with
       # the verification disabled (see src-tauri/build.rs).
       - name: import signing certificate
-        if: ${{ secrets.SIGNING_CERT_PFX_BASE64 != '' }}
         env:
           SIGNING_CERT_PFX_BASE64: ${{ secrets.SIGNING_CERT_PFX_BASE64 }}
           SIGNING_CERT_PFX_PASSWORD: ${{ secrets.SIGNING_CERT_PFX_PASSWORD }}
         shell: pwsh
         run: |
+          if (-not $env:SIGNING_CERT_PFX_BASE64) {
+            Write-Host "signing secrets not configured; building unsigned"
+            exit 0
+          }
           $pfx = Join-Path $env:RUNNER_TEMP "signing.pfx"
           [System.IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:SIGNING_CERT_PFX_BASE64))
           $password = ConvertTo-SecureString $env:SIGNING_CERT_PFX_PASSWORD -AsPlainText -Force
