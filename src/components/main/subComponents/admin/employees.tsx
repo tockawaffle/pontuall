@@ -109,6 +109,7 @@ export default function Employees(
     const [cardModalOpen, setCardModalOpen] = useState(false);
     const [cardProvisioning, setCardProvisioning] = useState(false);
     const [formatPromptOpen, setFormatPromptOpen] = useState(false);
+    const [terminating, setTerminating] = useState(false);
 
     useEffect(() => {
         if (!selectedEmployee || selectedDate === "") {
@@ -267,6 +268,25 @@ export default function Employees(
                 type: "error",
                 message: `Algum dos dados não puderam ser atualizados.`
             })
+        }
+    }
+
+    async function handleTerminate() {
+        if (!selectedEmployee) return;
+        setTerminating(true);
+        try {
+            const result = await TauriApi.TerminateEmployee(selectedEmployee.id);
+            await refreshUsers();
+            toast.success(`${selectedEmployee.name} desligado(a).`, {
+                description: result.exportSent
+                    ? "Uma cópia dos dados e registros de ponto foi enviada ao e-mail do funcionário."
+                    : "Sem e-mail cadastrado ou SMTP configurado: entregue a cópia dos dados por outro meio (LGPD Art. 18).",
+            });
+        } catch (e: unknown) {
+            const message = e instanceof Error ? e.message : String(e);
+            toast.error(message || "Não foi possível desligar o funcionário.");
+        } finally {
+            setTerminating(false);
         }
     }
 
@@ -584,6 +604,49 @@ export default function Employees(
                                                         >
                                                             Novo cartão
                                                         </Button>
+                                                    )}
+                                                    {editHierarchy && (
+                                                        <AlertDialog>
+                                                            <AlertDialogTrigger asChild>
+                                                                <Button
+                                                                    variant="destructive"
+                                                                    disabled={
+                                                                        terminating ||
+                                                                        selectedEmployee?.status === "terminated"
+                                                                    }
+                                                                >
+                                                                    {selectedEmployee?.status === "terminated"
+                                                                        ? "Desligado"
+                                                                        : "Desligar"}
+                                                                </Button>
+                                                            </AlertDialogTrigger>
+                                                            <AlertDialogContent>
+                                                                <AlertDialogHeader>
+                                                                    <AlertDialogTitle>
+                                                                        Desligar funcionário?
+                                                                    </AlertDialogTitle>
+                                                                    <AlertDialogDescription>
+                                                                        <strong>{selectedEmployee?.name}</strong> receberá
+                                                                        por e-mail uma cópia dos seus dados e de todos os
+                                                                        registros de ponto (LGPD Art. 18). Os cartões serão
+                                                                        bloqueados e o acesso ao sistema removido. Os
+                                                                        registros de ponto são mantidos pelo prazo legal e o
+                                                                        cadastro é anonimizado ao final dele. Esta ação não
+                                                                        pode ser desfeita.
+                                                                    </AlertDialogDescription>
+                                                                </AlertDialogHeader>
+                                                                <AlertDialogFooter>
+                                                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                                    <AlertDialogAction
+                                                                        variant="destructive"
+                                                                        disabled={terminating}
+                                                                        onClick={() => void handleTerminate()}
+                                                                    >
+                                                                        {terminating ? "Desligando…" : "Desligar"}
+                                                                    </AlertDialogAction>
+                                                                </AlertDialogFooter>
+                                                            </AlertDialogContent>
+                                                        </AlertDialog>
                                                     )}
                                                 </div>
                                                 {editPerms && (

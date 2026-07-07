@@ -80,6 +80,7 @@ pub(crate) async fn insert_new_user(
         lunch_time: Some(lunch_time),
         status: "active".to_string(),
         auth_user_id: None,
+        terminated_at: None,
         created_at: now,
         updated_at: now,
     };
@@ -143,6 +144,121 @@ pub(crate) async fn update_employee(
     }
 
     Ok(true)
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct TerminateEmployeeResult {
+    /// Whether the data-export e-mail reached the employee (requires a
+    /// registered e-mail and a configured SMTP server).
+    pub export_sent: bool,
+}
+
+/// Terminates an employee (LGPD flow, .lgpd/retention.md §3):
+/// 1. e-mails them a copy of their data and punch history (Art. 18, II/V);
+/// 2. blocks their NFC cards;
+/// 3. removes their login account;
+/// 4. marks the record `terminated` so the retention job anonymizes it after
+///    the legal retention window. Time entries are kept (CLT Art. 74).
+#[tauri::command]
+pub(crate) async fn employee_terminate(
+    app: AppHandle,
+    employee_id: String,
+) -> Result<TerminateEmployeeResult, DbError> {
+    let actor = guard::require_auth_admin_current(&app)
+        .await
+        .map_err(|e| DbError::InvalidInput(e.to_string()))?;
+
+    let state = app.state::<DbState>();
+    let mut employee = employees::find_local(&state.lite, &employee_id)
+        .await?
+        .ok_or_else(|| DbError::NotFound("employee".into()))?;
+    if employee.status == "terminated" {
+        return Err(DbError::Conflict("funcionário já desligado".into()));
+    }
+
+    // Send the data copy first: it needs the e-mail and must happen before
+    // anything is blocked or removed. A send failure aborts the termination
+    // (nothing has been changed yet) so the admin can retry.
+    let mut export_sent = false;
+    if let (Some(email), Some(smtp)) = (
+        employee.email.clone().filter(|e| !e.trim().is_empty()),
+        crate::misc::smtp::get_smtp_config()?,
+    ) {
+        let entries = time_entries::list_local(&state.lite).await?;
+        let mut days: Vec<&crate::db::models::TimeEntry> = entries
+            .iter()
+            .filter(|e| e.employee_id == employee_id)
+            .collect();
+        days.sort_by_key(|e| e.work_date);
+
+        let export = serde_json::json!({
+            "employee": {
+                "name": employee.name,
+                "email": employee.email,
+                "phone": employee.phone,
+                "role": employee.role,
+                "lunchTime": employee.lunch_time,
+                "createdAt": employee.created_at.to_rfc3339(),
+            },
+            "timeEntries": days.iter().map(|e| {
+                let h = e.to_hour_data();
+                serde_json::json!({
+                    "date": e.work_date.format(crate::db::models::DAY_KEY_FORMAT).to_string(),
+                    "clockIn": h.clock_in,
+                    "lunchOut": h.lunch_break_out,
+                    "lunchReturn": h.lunch_break_return,
+                    "clockOut": h.clocked_out,
+                    "totalHours": h.total_hours,
+                })
+            }).collect::<Vec<_>>(),
+        });
+
+        let auth = app.state::<AuthState>();
+        auth.send_data_export(&email, &export, &smtp, &actor)
+            .await
+            .map_err(|e| {
+                DbError::InvalidInput(format!(
+                    "envio dos dados ao funcionário falhou ({e}) — o desligamento foi cancelado, tente novamente"
+                ))
+            })?;
+        export_sent = true;
+    }
+
+    // Block every card so it stops punching immediately.
+    for mut card in crate::db::repo::cards::find_by_employee(&state, &employee_id).await? {
+        if card.status != "blocked" {
+            card.status = "blocked".to_string();
+            crate::db::repo::cards::upsert(&state, &card).await?;
+            crate::db::repo::cards::log_event(
+                &state,
+                Some(&card.id),
+                "blocked",
+                Some("desligamento do funcionário".into()),
+            )
+            .await?;
+        }
+    }
+
+    // Remove the login account (revokes sessions on the sidecar side).
+    if let Some(auth_user_id) = employee.auth_user_id.take() {
+        let auth = app.state::<AuthState>();
+        let token = auth
+            .current_session()
+            .await
+            .map_err(|e| DbError::InvalidInput(e.to_string()))?;
+        auth.admin_remove_user(&token, &auth_user_id)
+            .await
+            .map_err(|e| DbError::InvalidInput(e.to_string()))?;
+        auth.clear_session_cache().await;
+    }
+
+    employee.status = "terminated".to_string();
+    employee.terminated_at = Some(Utc::now());
+    employee.updated_at = Utc::now();
+    employees::upsert(&state, &employee).await?;
+
+    Ok(TerminateEmployeeResult { export_sent })
 }
 
 /// Records a punch. `day` is the frontend's "dd/mm/yyyy" key and `value` a

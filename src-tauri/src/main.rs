@@ -19,8 +19,8 @@ use crate::card::commands::{
 };
 use crate::card::service::CardService;
 use crate::db::commands::{
-    delete_time_entry_day, gen_id, get_cache, get_users_and_cache, insert_new_user,
-    update_cache_hour_data, update_employee,
+    delete_time_entry_day, employee_terminate, gen_id, get_cache, get_users_and_cache,
+    insert_new_user, update_cache_hour_data, update_employee,
 };
 use crate::db::setup_cmds::{insert_db_config, test_db_connection};
 use crate::db::DbState;
@@ -78,6 +78,7 @@ fn main() {
             get_cache,
             insert_new_user,
             update_employee,
+            employee_terminate,
             update_cache_hour_data,
             delete_time_entry_day,
             get_users_and_cache,

@@ -105,6 +105,15 @@ export default class TauriApi {
         return this.command<boolean>("delete_time_entry_day", {employeeId, day});
     }
 
+    /**
+     * Terminates an employee: e-mails them a copy of their data and punch
+     * history (LGPD Art. 18), blocks their cards and removes their login.
+     * `exportSent` is false when there is no e-mail or SMTP configured.
+     */
+    public static async TerminateEmployee(employeeId: string) {
+        return this.command<{ exportSent: boolean }>("employee_terminate", {employeeId});
+    }
+
     public static async UpdateCache() {
         return this.command<void>("get_users_and_cache", {});
     }
@@ -375,8 +384,9 @@ export default class TauriApi {
         return this.command<boolean>("insert_db_config", {uri, appName});
     }
 
+    /** Returns a warning message when the connection does not force TLS. */
     public static async TestDatabase(uri: string) {
-        return this.command<void>("test_db_connection", {uri});
+        return this.command<string | null>("test_db_connection", {uri});
     }
 
     // Event listener for each window

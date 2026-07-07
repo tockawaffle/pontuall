@@ -4,13 +4,35 @@ use crate::db::{
     KEYRING_PG_URI,
 };
 
-/// Validates that the given PostgreSQL server is reachable.
+/// LGPD Art. 46 (gap #5 em .lgpd/gaps.md): warns when the URI does not force
+/// TLS — sqlx defaults to `prefer`, which silently falls back to plaintext.
+fn tls_warning(uri: &str) -> Option<String> {
+    let sslmode = uri.split_once('?').and_then(|(_, query)| {
+        query.split('&').find_map(|pair| {
+            let (key, value) = pair.split_once('=')?;
+            (key.eq_ignore_ascii_case("sslmode") || key.eq_ignore_ascii_case("ssl-mode"))
+                .then(|| value.to_ascii_lowercase())
+        })
+    });
+    match sslmode.as_deref() {
+        Some("require") | Some("verify-ca") | Some("verify-full") => None,
+        _ => Some(
+            "A conexão com o PostgreSQL não exige TLS, então dados pessoais podem trafegar \
+             sem criptografia na rede. Se o servidor não estiver nesta máquina, adicione \
+             `?sslmode=require` ao final da URI."
+                .to_string(),
+        ),
+    }
+}
+
+/// Validates that the given PostgreSQL server is reachable. Returns a
+/// warning message when the connection does not force TLS.
 #[tauri::command]
-pub(crate) async fn test_db_connection(uri: String) -> Result<(), DbError> {
+pub(crate) async fn test_db_connection(uri: String) -> Result<Option<String>, DbError> {
     let pool = connect_pg_admin(&uri).await?;
     sqlx::query("SELECT 1").execute(&pool).await?;
     pool.close().await;
-    Ok(())
+    Ok(tls_warning(&uri))
 }
 
 /// Stores the PostgreSQL configuration, creates the application database if

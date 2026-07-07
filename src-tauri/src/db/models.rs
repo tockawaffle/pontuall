@@ -18,6 +18,7 @@ pub(crate) struct Employee {
     pub lunch_time: Option<String>,
     pub status: String,
     pub auth_user_id: Option<String>,
+    pub terminated_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

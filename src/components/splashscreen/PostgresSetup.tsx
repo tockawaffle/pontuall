@@ -28,13 +28,19 @@ export default function PostgresSetup(
     }: PostgresSetupProps
 ) {
     const [error, setError] = useState<string>("");
+    const [tlsWarning, setTlsWarning] = useState<string>("");
     const [busy, setBusy] = useState<boolean>(false);
 
     async function handleFinish() {
         setError("");
         setBusy(true);
         try {
-            await TauriApi.TestDatabase(postgresUri || "postgres://postgres:postgres@localhost:5432");
+            const warning = await TauriApi.TestDatabase(postgresUri || "postgres://postgres:postgres@localhost:5432");
+            // First click surfaces the TLS warning; a second click proceeds.
+            if (warning && !tlsWarning) {
+                setTlsWarning(warning);
+                return;
+            }
             await Setup(setBackendSetup, appName, postgresUri);
         } catch (e: any) {
             setError(e?.message ?? "Não foi possível conectar ao banco de dados.");
@@ -77,7 +83,10 @@ export default function PostgresSetup(
                                     id="postgresUri"
                                     placeholder="postgres://usuario:senha@localhost:5432"
                                     value={postgresUri}
-                                    onChange={(e) => setPostgresUri(e.target.value)}
+                                    onChange={(e) => {
+                                        setPostgresUri(e.target.value);
+                                        setTlsWarning("");
+                                    }}
                                 />
                             </TooltipTrigger>
                             <TooltipContent className="max-w-xs text-center">
@@ -91,10 +100,15 @@ export default function PostgresSetup(
                         <span className="text-sm text-red-500">{error}</span>
                     )
                 }
+                {
+                    tlsWarning && (
+                        <span className="text-sm text-amber-500">{tlsWarning}</span>
+                    )
+                }
                 <div className="flex gap-3 pt-2">
                     <Button variant="outline" disabled={busy} onClick={() => setSetupStep(1)}>Voltar</Button>
                     <Button className="min-w-32" disabled={busy || !appName} onClick={handleFinish}>
-                        {busy ? "Conectando…" : "Continuar"}
+                        {busy ? "Conectando…" : tlsWarning ? "Continuar mesmo assim" : "Continuar"}
                     </Button>
                 </div>
             </div>

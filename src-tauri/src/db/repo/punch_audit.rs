@@ -8,6 +8,19 @@ const MAX_OTP_REQUESTS_PER_HOUR: i64 = 3;
 const MAX_VERIFY_FAILURES_WINDOW_MIN: i64 = 15;
 const MAX_VERIFY_FAILURES: i64 = 5;
 
+/// Masks an e-mail the same way the sidecar audit log does ("ab***@domain"):
+/// rate limiting keys on employee_id, so the log never needs the full address
+/// (LGPD Art. 6º, III — LIA A005 in .lgpd/lia/).
+fn mask_email(value: &str) -> String {
+    match value.split_once('@') {
+        Some((local, domain)) => {
+            let prefix: String = local.chars().take(2).collect();
+            format!("{prefix}***@{domain}")
+        }
+        None => "***".to_string(),
+    }
+}
+
 pub(crate) async fn log_event(
     lite: &SqlitePool,
     employee_id: Option<&str>,
@@ -22,7 +35,7 @@ pub(crate) async fn log_event(
     )
     .bind(Uuid::new_v4().to_string())
     .bind(employee_id)
-    .bind(email)
+    .bind(email.map(mask_email))
     .bind(event_type)
     .bind(if success { 1 } else { 0 })
     .bind(details)
@@ -70,6 +83,18 @@ pub(crate) async fn ensure_can_verify_otp(
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mask_email;
+
+    #[test]
+    fn mask_email_keeps_only_prefix_and_domain() {
+        assert_eq!(mask_email("joao.silva@empresa.com"), "jo***@empresa.com");
+        assert_eq!(mask_email("a@b.co"), "a***@b.co");
+        assert_eq!(mask_email("not-an-email"), "***");
+    }
 }
 
 async fn is_locked_out(lite: &SqlitePool, employee_id: &str) -> Result<bool, DbError> {

@@ -564,6 +564,38 @@ impl AuthState {
         Ok(body.roles)
     }
 
+    /// E-mails the terminated employee a copy of their data (LGPD Art. 18).
+    pub(crate) async fn send_data_export(
+        &self,
+        to: &str,
+        export: &serde_json::Value,
+        smtp: &crate::misc::smtp::SmtpConfigDto,
+        actor: &UserLoggedDto,
+    ) -> Result<(), AuthError> {
+        let url = format!("{}/internal/data-export/send", self.base_url().await?);
+        let response = self
+            .request(reqwest::Method::POST, url, None)
+            .json(&json!({
+                "to": to,
+                "smtp": smtp,
+                "export": export,
+                "actorId": actor.id,
+                "actorName": actor.name,
+            }))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(AuthError::Internal(if body.is_empty() {
+                "falha ao enviar os dados por e-mail".into()
+            } else {
+                body
+            }));
+        }
+        Ok(())
+    }
+
     pub(crate) async fn test_smtp(
         &self,
         smtp: &crate::misc::smtp::SmtpConfigDto,

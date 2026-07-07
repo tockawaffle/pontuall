@@ -34,6 +34,7 @@ async fn setup(app: AppHandle) -> Result<(), String> {
     }
 
     tauri::async_runtime::spawn(crate::db::online::watch_loop(app.clone()));
+    tauri::async_runtime::spawn(crate::db::retention::retention_loop(app.clone()));
 
     // Auth requires Postgres; when offline the app still boots, but login
     // stays unavailable until connectivity returns.

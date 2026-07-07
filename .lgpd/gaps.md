@@ -1,5 +1,11 @@
 # Gap Analysis e Plano de Remediação — 2026-07-06
 
+> **Atualização 2026-07-07**: gaps #1, #2, #5 e #10 resolvidos em código (comando
+> `employee_terminate` com envio dos dados ao titular, job de retenção/anonimização,
+> aviso de TLS, e-mail mascarado no punch_auth_log, poda ancorada do audit log).
+> Ver tabela de remediação em `STATUS.md`. Abertos: #3 (aviso de privacidade — revisão
+> jurídica), #4 (criptografia do offline.db) e itens de documentação.
+
 Escopo: produto PontuAll v0.2.0 (self-hosted). Dois planos de conformidade:
 **(P)** privacy-by-design no produto (Art. 46, § 2º) e **(D)** documentação/artefatos que o
 produto entrega à empresa cliente (controladora) para ela cumprir a LGPD.

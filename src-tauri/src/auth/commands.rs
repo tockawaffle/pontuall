@@ -115,6 +115,7 @@ pub(crate) async fn auth_bootstrap_admin(
         lunch_time: None,
         status: "active".to_string(),
         auth_user_id: Some(auth_user_id),
+        terminated_at: None,
         created_at: now,
         updated_at: now,
     };

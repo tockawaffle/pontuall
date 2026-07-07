@@ -1,9 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 
-import { listAudit, logAudit, logAuthApiEvent, maskEmail, resolveApiActor, verifyAuditChain } from "./audit";
+import { listAudit, logAudit, logAuthApiEvent, maskEmail, pruneAuditLog, resolveApiActor, verifyAuditChain } from "./audit";
 import { auth } from "./auth";
 import { prisma } from "./db";
-import { sendSmtpTestEmail, type SmtpConfig } from "./mail";
+import { sendDataExportEmail, sendSmtpTestEmail, type DataExport, type SmtpConfig } from "./mail";
 import { ensureAuthSchema } from "./migrate";
 import { issuePunchOtp, verifyPunchOtp } from "./punch-otp";
 import { RESET_PASSWORD_HTML } from "./reset-page";
@@ -253,6 +253,38 @@ const server = Bun.serve({
             return Response.json({ ok: true });
         }
 
+        if (url.pathname === "/internal/data-export/send" && request.method === "POST") {
+            const body = (await request.json()) as {
+                to?: string;
+                smtp?: SmtpConfig;
+                export?: DataExport;
+                actorId?: string;
+                actorName?: string;
+            };
+            if (!body.to || !body.smtp || !body.export) {
+                return Response.json({ error: "to, smtp and export required" }, { status: 400 });
+            }
+            const audit = (success: boolean) =>
+                void logAudit({
+                    actorId: body.actorId ?? null,
+                    actorName: body.actorName ?? null,
+                    actorType: body.actorId ? "admin" : "system",
+                    action: "internal/data-export-send",
+                    resource: maskEmail(body.to ?? ""),
+                    success,
+                });
+            try {
+                await sendDataExportEmail(body.smtp, body.to, body.export);
+                audit(true);
+                return Response.json({ ok: true });
+            } catch (e) {
+                const message = e instanceof Error ? e.message : String(e);
+                console.error("[data-export] send failed:", message);
+                audit(false);
+                return Response.json({ error: message }, { status: 502 });
+            }
+        }
+
         if (url.pathname === "/internal/smtp/test" && request.method === "POST") {
             const body = (await request.json()) as { smtp?: SmtpConfig; to?: string };
             if (!body.smtp || !body.to) {
@@ -306,6 +338,40 @@ const server = Bun.serve({
 });
 
 console.log(`pontuall-auth listening on http://127.0.0.1:${server.port}`);
+
+// Daily LGPD retention for the tables this sidecar owns
+// (.lgpd/retention.md §3); the Rust side purges its own tables.
+const SESSION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
+const VERIFICATION_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+const RETENTION_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+async function runRetention(): Promise<void> {
+    const now = Date.now();
+    const sessions = await prisma.session.deleteMany({
+        where: { expiresAt: { lt: new Date(now - SESSION_GRACE_MS) } },
+    });
+    const verifications = await prisma.verification.deleteMany({
+        where: { expiresAt: { lt: new Date(now - VERIFICATION_GRACE_MS) } },
+    });
+    const auditPruned = await pruneAuditLog();
+    if (sessions.count > 0 || verifications.count > 0 || auditPruned > 0) {
+        void logAudit({
+            actorType: "system",
+            action: "retention:purge",
+            success: true,
+            payload: {
+                sessions: sessions.count,
+                verifications: verifications.count,
+                auditPruned,
+            },
+        });
+    }
+}
+
+const logRetentionError = (e: unknown) =>
+    console.error("[retention] purge failed:", e instanceof Error ? e.message : e);
+setTimeout(() => void runRetention().catch(logRetentionError), 60_000);
+setInterval(() => void runRetention().catch(logRetentionError), RETENTION_INTERVAL_MS);
 
 process.stdin.resume();
 process.stdin.on("end", () => process.exit(0));

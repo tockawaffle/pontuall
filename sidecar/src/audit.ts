@@ -110,6 +110,23 @@ export async function listAudit(
     return { entries, total: counted[0]?.total ?? 0 };
 }
 
+/** Registro de incidentes: Res. CD/ANPD nº 15/2024, Art. 10 — 5 anos. */
+const AUDIT_RETENTION_YEARS = 5;
+
+/**
+ * Prunes entries past the legal retention window (.lgpd/retention.md §3).
+ * The first retained row keeps its prev_hash — the hash of the last pruned
+ * row — as the chain anchor, so verifyAuditChain still validates everything
+ * that remains.
+ */
+export async function pruneAuditLog(): Promise<number> {
+    const cutoff = new Date();
+    cutoff.setFullYear(cutoff.getFullYear() - AUDIT_RETENTION_YEARS);
+    return prisma.$executeRaw`
+        DELETE FROM auth_audit_log WHERE created_at < ${cutoff}
+    `;
+}
+
 /** Walks the whole chain recomputing hashes; any divergence means tampering. */
 export async function verifyAuditChain(): Promise<{
     ok: boolean;
@@ -132,7 +149,10 @@ export async function verifyAuditChain(): Promise<{
         ORDER BY seq ASC
     `;
 
-    let prev: string | null = null;
+    // The retention prune removes the oldest entries, so the chain may no
+    // longer start at prev_hash = NULL: the first retained row's prev_hash
+    // (hash of the last pruned row) is accepted as the anchor.
+    let prev: string | null = rows.length > 0 ? rows[0].prev_hash : null;
     for (const row of rows) {
         const expected = computeSelfHash(
             prev,

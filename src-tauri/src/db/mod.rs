@@ -3,6 +3,7 @@ pub(crate) mod error;
 pub(crate) mod models;
 pub(crate) mod online;
 pub(crate) mod repo;
+pub(crate) mod retention;
 pub(crate) mod setup_cmds;
 pub(crate) mod sync;
 
@@ -165,6 +166,7 @@ mod tests {
             lunch_time: Some("12:00".into()),
             status: "active".into(),
             auth_user_id: None,
+            terminated_at: None,
             created_at: now,
             updated_at: now,
         }
@@ -182,10 +184,10 @@ mod tests {
 
         let date = NaiveDate::from_ymd_opt(2026, 7, 3).unwrap();
         let ts = Utc::now();
-        time_entries::set_field(&db, "emp1", date, UpdateKey::ClockIn, ts)
+        time_entries::set_field(&db, "emp1", date, UpdateKey::ClockIn, ts, None)
             .await
             .unwrap();
-        time_entries::set_field(&db, "emp1", date, UpdateKey::ClockOut, ts)
+        time_entries::set_field(&db, "emp1", date, UpdateKey::ClockOut, ts, None)
             .await
             .unwrap();
 
@@ -201,7 +203,7 @@ mod tests {
         assert_eq!(outbox::pending(&db.lite).await.unwrap().len(), 3);
 
         // Legacy wire shape used by the frontend.
-        let user = listed[0].to_user_external(std::slice::from_ref(&row));
+        let user = listed[0].to_user_external(std::slice::from_ref(&row), None);
         let hour_data = user.hour_data.unwrap();
         let key = date.format(DAY_KEY_FORMAT).to_string();
         assert!(hour_data.contains_key(&key));

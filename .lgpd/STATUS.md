@@ -41,15 +41,15 @@ controlador nem operador em operação normal. A conformidade tem dois planos:
 ### O que falta — REMEDIAÇÃO PRIORIZADA
 
 **Código (produto) — ordem de prioridade:**
-| # | Item | Ref | Esforço |
+| # | Item | Ref | Estado |
 |---|---|---|---|
-| 1 | Feature "desligar funcionário" (`terminated_at` + bloqueio de cartões + remoção de login) | `retention.md` §3 F1; gap #1 | médio |
-| 2 | Job diário de retenção/purga + anonimização de desligados | `retention.md` §3 F2; gap #2 | médio |
-| 3 | Mascarar e-mail em `punch_auth_log` (condição do LIA A005) | gap #10 | baixo |
-| 4 | Aviso quando URI Postgres sem TLS | gap #5 | baixo |
-| 5 | Checkpoint do hash chain p/ poda do audit log | `retention.md` §3 F3 | baixo |
-| 6 | Export individual completo (JSON) — "DSAR em 1 clique" | `dsar/workflow.md` F4 | médio |
-| 7 | Criptografia do `offline.db` (SQLCipher/DPAPI) ou doc BitLocker obrigatório | gap #4 | alto |
+| 1 | ✅ Feature "desligar funcionário" — comando `employee_terminate` (migration 0004, bloqueio de cartões, remoção de login) **+ envio automático dos dados e batidas ao e-mail do funcionário** (Art. 18, II/V; tabela HTML + anexo JSON) | `retention.md` §3 F1; gap #1 | implementado 2026-07-07 |
+| 2 | ✅ Job diário de retenção/purga (Rust: `db/retention.rs`; sidecar: sessões/verificações + audit log) + anonimização de desligados após 5 anos | `retention.md` §3 F2; gap #2 | implementado 2026-07-07, com testes |
+| 3 | ✅ E-mail mascarado na escrita do `punch_auth_log` (condição do LIA A005) | gap #10 | implementado 2026-07-07 |
+| 4 | ✅ Aviso de TLS no setup quando URI sem `sslmode=require` (confirmação em 2 cliques) | gap #5 | implementado 2026-07-07 |
+| 5 | ✅ Poda do audit log >5 anos com âncora do hash chain (`verifyAuditChain` aceita início ancorado) | `retention.md` §3 F3 | implementado 2026-07-07 |
+| 6 | Export individual completo (JSON) — "DSAR em 1 clique" fora do desligamento (parcialmente coberto pelo item 1) | `dsar/workflow.md` F4 | pendente |
+| 7 | Criptografia do `offline.db` (SQLCipher/DPAPI) ou doc BitLocker obrigatório | gap #4 | pendente |
 
 **Documentação (entregar com o produto):**
 | # | Item | Estado |
