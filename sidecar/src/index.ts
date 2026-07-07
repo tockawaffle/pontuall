@@ -56,7 +56,7 @@ const server = Bun.serve({
         }
 
         if (isHealth) {
-            return Response.json({ ok: true, version: "0.2.0" });
+            return Response.json({ ok: true, version: "0.3.0" });
         }
 
         if (isPortalData) {

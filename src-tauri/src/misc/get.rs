@@ -5,6 +5,7 @@ pub(crate) fn version_name(version: String) -> String {
         "0.1.1" => "Reforged Yttrium".to_string(),
         "0.1.2" => "Yttrium-Aluminium Alloy".to_string(),
         "0.2.0" => "Neodymium".to_string(),
+        "0.3.0" => "Praseodymium".to_string(),
         _ => "noname".to_string(),
     }
 }

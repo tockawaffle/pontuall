@@ -6,7 +6,7 @@
 > Ver tabela de remediação em `STATUS.md`. Abertos: #3 (aviso de privacidade — revisão
 > jurídica), #4 (criptografia do offline.db) e itens de documentação.
 
-Escopo: produto PontuAll v0.2.0 (self-hosted). Dois planos de conformidade:
+Escopo: produto PontuAll v0.3.0 (self-hosted). Dois planos de conformidade:
 **(P)** privacy-by-design no produto (Art. 46, § 2º) e **(D)** documentação/artefatos que o
 produto entrega à empresa cliente (controladora) para ela cumprir a LGPD.
 
