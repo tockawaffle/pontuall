@@ -20,14 +20,19 @@ Art. 14). Recomendação: mirar 15 mesmo assim.
 
 ## Mapa dos 9 direitos → capacidade no produto
 
+> **Atualização 2026-07-07**: o produto ganhou **autoatendimento** — o portal web
+> `/portal` (servido pelo sidecar, login do próprio funcionário) cobre I, II e V sem
+> intervenção do admin, e o desligamento (`employee_terminate`) envia automaticamente a
+> cópia dos dados por e-mail. O quadro abaixo reflete isso.
+
 | # | Direito (Art. 18) | Como atender hoje | Pendência |
 |---|---|---|---|
-| I | Confirmação de existência | Admin consulta o funcionário no painel; resposta imediata | — |
-| II | Acesso | Export `.xlsx` do funcionário (relatório individual de frequência) + leitura do cadastro | ⚠️ export não inclui cadastro completo (telefone, role, cartões) — ver Feature 4 |
+| I | Confirmação de existência | **Self-service**: portal `/portal` (funcionário logado vê os próprios dados); ou admin consulta no painel | — |
+| II | Acesso | **Self-service**: portal mostra cadastro + todas as batidas; no desligamento a cópia vai por e-mail automaticamente | — |
 | III | Correção | Edição de cadastro (upsert) + correção de batida **com trilha de auditoria imutável** | — |
 | IV | Anonimização/bloqueio/eliminação de dados desnecessários | Excedentes (ex.: telefone não utilizado) podem ser apagados via edição | — |
-| V | Portabilidade | `.xlsx` é estruturado e interoperável — aceitável | Feature 4 melhora (JSON completo) |
-| VI | Eliminação | **Árvore de decisão em `../retention.md` §2** — vínculo ativo: negar com fundamento (Art. 16, I); desligado: anonimizar | 🔴 depende de `employee_terminate` + job (gaps #1/#2) |
+| V | Portabilidade | **Self-service**: botão "Baixar meus dados (JSON)" no portal (ISO 8601, estruturado); `.xlsx` continua disponível ao admin | — |
+| VI | Eliminação | **Árvore de decisão em `../retention.md` §2** — vínculo ativo: negar com fundamento (Art. 16, I); desligado: `employee_terminate` + anonimização automática após o prazo | — |
 | VII | Info sobre compartilhamento | Responder com base em `../data-map.md` (operadores: SMTP/host do banco) — vai ao aviso de privacidade (L9) | L9 |
 | VIII | Info sobre não consentir | N/A na prática — nenhuma atividade usa consentimento (ver `../legal-basis.md`); informar isso ao titular | L9 |
 | IX | Revogação de consentimento | N/A — sem tratamento baseado em consentimento. Oposição (Art. 18 §2) ao cartão NFC: oferecer OTP como alternativa | — |
@@ -52,12 +57,13 @@ no aviso de privacidade.
 > 671/2021; LGPD Art. 16, I), e eliminados após esse prazo. Qualquer dúvida, contate o
 > Encarregado: {contato}.
 
-## Features de produto recomendadas (backlog do desenvolvedor)
+## Features de produto (estado)
 
-- **Feature 4 — Export individual completo**: comando "exportar dados do funcionário"
-  (JSON: cadastro + batidas + cartões + eventos relevantes), botão no painel admin. Cobre
-  II e V de uma vez e vira diferencial de venda ("DSAR em 1 clique").
-- **Features 1–3** (terminate/anonimização/purga): já especificadas em `../retention.md` §3
-  — são pré-requisito do direito VI.
-- **Tela "seus dados" no terminal** (baixa prioridade): funcionário vê o próprio cadastro e
-  batidas após autenticar por OTP/cartão.
+- ✅ **Feature 4 — implementada como portal web** (`/portal` no sidecar, 2026-07-07):
+  optou-se por autoatendimento fora do quiosque — o funcionário loga com a própria conta,
+  vê cadastro + batidas, baixa JSON e troca a senha. Requisito: conta de acesso criada e
+  admin divulgar a URL (ela vai no e-mail de definição de senha). Funcionários só-NFC sem
+  e-mail continuam pelo fluxo manual do admin.
+- ✅ **Features 1–3** (terminate/anonimização/purga): implementadas 2026-07-07
+  (`../retention.md` §3).
+- Descartada: tela "seus dados" no terminal — o portal substitui sem ocupar o quiosque.

@@ -57,6 +57,7 @@ export async function sendPasswordSetupEmail(
     name: string,
     url: string,
     expiresHours: number,
+    portalUrl?: string,
 ): Promise<void> {
     const transporter = createTransporter(config);
     await transporter.sendMail({
@@ -70,6 +71,12 @@ export async function sendPasswordSetupEmail(
             url,
             "",
             `O link expira em ${expiresHours} horas e só pode ser usado uma vez.`,
+            ...(portalUrl
+                ? [
+                      "",
+                      `Com a senha definida, você pode consultar seus dados e registros de ponto em: ${portalUrl}`,
+                  ]
+                : []),
             "",
             "Se você não esperava este e-mail, ignore-o.",
         ].join("\n"),
@@ -79,6 +86,7 @@ export async function sendPasswordSetupEmail(
             <p><a href="${url}" style="display:inline-block;padding:12px 24px;background:#1a1a2e;color:#fff;text-decoration:none;border-radius:6px">Definir senha</a></p>
             <p>Ou copie e cole este endereço no navegador:<br><a href="${url}">${url}</a></p>
             <p>O link expira em ${expiresHours} horas e só pode ser usado uma vez.</p>
+            ${portalUrl ? `<p>Com a senha definida, você pode consultar seus dados e registros de ponto em <a href="${portalUrl}">${portalUrl}</a>.</p>` : ""}
             <p style="color:#666;font-size:12px">Se você não esperava este e-mail, ignore-o.</p>
         `,
     });

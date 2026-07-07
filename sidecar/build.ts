@@ -20,6 +20,8 @@ await $`bunx --bun prisma generate`.env({
         process.env.DATABASE_URL ??
         "postgres://placeholder:placeholder@localhost:5432/placeholder",
 });
+// The HTML import in src/portal.ts pulls portal/{index.html,app.ts,style.css}
+// into the bundle, so the executable stays self-contained.
 await $`bun build --compile --minify --target=bun-windows-x64 src/index.ts --outfile ${outfile}`;
 
 console.log(`sidecar built: ${outfile}`);

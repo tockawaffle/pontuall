@@ -51,6 +51,7 @@ export const auth = betterAuth({
                 user.name,
                 `${origin}/reset-password?token=${token}`,
                 PASSWORD_LINK_TTL_HOURS,
+                `${origin}/portal`,
             );
         },
     },

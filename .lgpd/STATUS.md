@@ -48,7 +48,7 @@ controlador nem operador em operação normal. A conformidade tem dois planos:
 | 3 | ✅ E-mail mascarado na escrita do `punch_auth_log` (condição do LIA A005) | gap #10 | implementado 2026-07-07 |
 | 4 | ✅ Aviso de TLS no setup quando URI sem `sslmode=require` (confirmação em 2 cliques) | gap #5 | implementado 2026-07-07 |
 | 5 | ✅ Poda do audit log >5 anos com âncora do hash chain (`verifyAuditChain` aceita início ancorado) | `retention.md` §3 F3 | implementado 2026-07-07 |
-| 6 | Export individual completo (JSON) — "DSAR em 1 clique" fora do desligamento (parcialmente coberto pelo item 1) | `dsar/workflow.md` F4 | pendente |
+| 6 | ✅ Portal web do funcionário (`/portal` no sidecar, como a página de reset): login Better Auth, vê cadastro + todas as batidas, baixa JSON portável, troca senha. Acesso auditado (`portal/data-access`); só dados do próprio titular. Link incluído no e-mail de definição de senha | `dsar/workflow.md` F4 | implementado 2026-07-07 |
 | 7 | Criptografia do `offline.db` (SQLCipher/DPAPI) ou doc BitLocker obrigatório | gap #4 | pendente |
 
 **Documentação (entregar com o produto):**

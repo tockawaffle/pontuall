@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PontuAll — Definir senha</title>
+<link rel="stylesheet" href="./style.css">
+<script type="module" src="./reset.ts"></script>
+</head>
+<body class="center">
+<div class="card narrow">
+    <h1>Definir senha</h1>
+    <p class="sub">PontuAll — controle de ponto</p>
+    <form id="form">
+        <label for="password">Nova senha</label>
+        <input id="password" type="password" minlength="10" required
+               placeholder="Mínimo de 10 caracteres" autocomplete="new-password">
+        <label for="confirm">Confirmar senha</label>
+        <input id="confirm" type="password" minlength="10" required
+               placeholder="Repita a senha" autocomplete="new-password">
+        <button id="submit" type="submit">Salvar senha</button>
+    </form>
+    <div id="msg" class="msg"></div>
+</div>
+</body>
+</html>

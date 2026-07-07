@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PontuAll — Meus dados</title>
+<link rel="stylesheet" href="./style.css">
+<script type="module" src="./app.ts"></script>
+</head>
+<body>
+<div class="card">
+    <h1>Meus dados</h1>
+    <p class="sub">PontuAll — controle de ponto</p>
+
+    <form id="login">
+        <label for="email">E-mail</label>
+        <input id="email" type="email" required autocomplete="username">
+        <label for="password">Senha</label>
+        <input id="password" type="password" required autocomplete="current-password">
+        <button id="login-submit" type="submit">Entrar</button>
+    </form>
+
+    <div id="portal" hidden>
+        <h2>Dados cadastrais</h2>
+        <dl id="profile"></dl>
+        <h2>Registros de ponto</h2>
+        <div class="table-wrap">
+            <table>
+                <thead>
+                    <tr><th>Data</th><th>Entrada</th><th>Almoço — saída</th>
+                        <th>Almoço — retorno</th><th>Saída</th><th>Total</th></tr>
+                </thead>
+                <tbody id="entries"></tbody>
+            </table>
+        </div>
+        <div class="actions">
+            <button id="download" type="button">Baixar meus dados (JSON)</button>
+            <button id="signout" type="button" class="secondary">Sair</button>
+        </div>
+        <details>
+            <summary>Alterar senha</summary>
+            <form id="change-password">
+                <label for="current-password">Senha atual</label>
+                <input id="current-password" type="password" required autocomplete="current-password">
+                <label for="new-password">Nova senha</label>
+                <input id="new-password" type="password" minlength="10" required
+                       placeholder="Mínimo de 10 caracteres" autocomplete="new-password">
+                <div class="actions">
+                    <button id="change-submit" type="submit">Salvar nova senha</button>
+                </div>
+            </form>
+        </details>
+        <p class="lgpd">Estes são os dados que a empresa mantém sobre você neste sistema.
+        Para corrigir informações, pedir eliminação ou exercer outros direitos da LGPD
+        (Lei 13.709/2018, Art. 18), fale com o RH ou com o encarregado de dados da empresa.</p>
+    </div>
+
+    <div id="msg" class="msg"></div>
+</div>
+</body>
+</html>

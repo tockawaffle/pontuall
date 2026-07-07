@@ -5,8 +5,8 @@ import { auth } from "./auth";
 import { prisma } from "./db";
 import { sendDataExportEmail, sendSmtpTestEmail, type DataExport, type SmtpConfig } from "./mail";
 import { ensureAuthSchema } from "./migrate";
+import { loadPortalExport, portalPage, resetPage } from "./portal";
 import { issuePunchOtp, verifyPunchOtp } from "./punch-otp";
-import { RESET_PASSWORD_HTML } from "./reset-page";
 import { configuredPublicOrigin, publicOrigins, runtime } from "./runtime";
 
 await ensureAuthSchema(prisma);
@@ -31,18 +31,25 @@ runtime.publicOrigin = configuredPublicOrigin() ?? publicOrigins(port)[0] ?? nul
 const server = Bun.serve({
     hostname: "0.0.0.0",
     port,
+    // These pages and their bundled assets are served by Bun itself and
+    // never reach fetch(); everything else goes through the gate below.
+    routes: {
+        "/portal": portalPage,
+        "/reset-password": resetPage,
+    },
     async fetch(request, server) {
         const url = new URL(request.url);
 
         const isAuthApi = url.pathname.startsWith("/api/auth");
         const isHealth = url.pathname === "/health";
-        const isResetPage = url.pathname === "/reset-password" && request.method === "GET";
+        const isPortalData = url.pathname === "/portal/data" && request.method === "GET";
 
         // Fail closed: every /internal route requires a valid shared key. An
         // empty key (misconfiguration) rejects rather than opening these
         // privilege-escalation routes. /api/auth is exempt (Better Auth guards
-        // it via session + role); /health and the reset page carry no secrets.
-        if (!isAuthApi && !isHealth && !isResetPage) {
+        // it via session + role); /health carries no secrets; /portal/data
+        // requires a session.
+        if (!isAuthApi && !isHealth && !isPortalData) {
             if (!sharedKey || !keyMatches(request.headers.get("x-pontuall-key") ?? "")) {
                 return new Response("Forbidden", { status: 403 });
             }
@@ -52,10 +59,36 @@ const server = Bun.serve({
             return Response.json({ ok: true, version: "0.2.0" });
         }
 
-        if (isResetPage) {
-            return new Response(RESET_PASSWORD_HTML, {
-                headers: { "Content-Type": "text/html; charset=utf-8" },
+        if (isPortalData) {
+            // Self-service data access (LGPD Art. 18, II/V): the session owner
+            // only ever sees the employee record linked to their own account.
+            let session = null;
+            try {
+                session = await auth.api.getSession({ headers: request.headers });
+            } catch {
+                // fall through: treated as unauthenticated
+            }
+            if (!session?.user) {
+                return Response.json({ error: "não autenticado" }, { status: 401 });
+            }
+            const data = await loadPortalExport(session.user.id);
+            if (!data) {
+                return Response.json(
+                    { error: "nenhum funcionário vinculado a esta conta" },
+                    { status: 404 },
+                );
+            }
+            void logAudit({
+                actorId: session.user.id,
+                actorName: session.user.name ?? null,
+                actorType: "user",
+                action: "portal/data-access",
+                resource: maskEmail(session.user.email ?? ""),
+                success: true,
+                ipAddress: server.requestIP(request)?.address ?? null,
+                userAgent: request.headers.get("user-agent"),
             });
+            return Response.json(data);
         }
 
         if (url.pathname === "/internal/promote-auth-admin" && request.method === "POST") {
