@@ -123,6 +123,11 @@ export function AppProvider({children}: { children: React.ReactNode }) {
         setTimezoneState(readStorage("timezone", "America/Sao_Paulo"));
         setWorkHours(loadWorkHours());
 
+        // Read work hours from DB (canonical); localStorage is the fast initial fallback.
+        void TauriApi.GetWorkHours().then((dbValues) => {
+            if (dbValues) setWorkHours(dbValues);
+        });
+
         void refreshUsers();
         void TauriApi.GetAppVersion().then(setVersion);
 
@@ -172,6 +177,7 @@ export function AppProvider({children}: { children: React.ReactNode }) {
         localStorage.setItem("HorarioSaida", workHours.exit);
         localStorage.setItem("HorarioSaidaFDS", workHours.exitWeekend);
         localStorage.setItem("MinutosTolerancia", String(workHours.toleranceMinutes));
+        void TauriApi.SaveWorkHours(workHours).catch(() => {});
     }, [workHours]);
 
     const value = useMemo(

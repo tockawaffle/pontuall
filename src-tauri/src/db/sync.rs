@@ -2,7 +2,7 @@ use tauri::{AppHandle, Emitter, Manager};
 
 use crate::db::error::DbError;
 use crate::db::models::{Employee, TimeEntry};
-use crate::db::repo::{cards, employees, outbox, time_entries};
+use crate::db::repo::{cards, config, employees, outbox, time_entries};
 use crate::db::DbState;
 use sqlx::{PgPool, SqlitePool};
 
@@ -63,6 +63,17 @@ pub(crate) async fn run_sync(app: &AppHandle) -> Result<(), DbError> {
                 Ok(card) => reconcile_card(&pg, &state.lite, &card).await,
                 Err(e) => Err(DbError::InvalidInput(format!("bad outbox payload: {e}"))),
             },
+            "upsert_app_config" => {
+                #[derive(serde::Deserialize)]
+                struct AppConfigEntry {
+                    key: String,
+                    value: String,
+                }
+                match serde_json::from_str::<AppConfigEntry>(&row.payload) {
+                    Ok(e) => config::upsert_pg(&pg, &e.key, &e.value).await,
+                    Err(e) => Err(DbError::InvalidInput(format!("bad outbox payload: {e}"))),
+                }
+            }
             other => Err(DbError::InvalidInput(format!("unknown outbox op: {other}"))),
         };
 

@@ -4,10 +4,11 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 
+use crate::app_flavor::SIDECAR_BIN;
 use crate::auth::error::AuthError;
 use crate::auth::{AuthState, KEYRING_AUTH_SECRET};
 use crate::db::{
-    keyring_get, keyring_set, pg_database_name, KEYRING_APP_NAME, KEYRING_PG_URI,
+    keyring_get, keyring_set, pg_database_name, DbState, KEYRING_APP_NAME, KEYRING_PG_URI,
 };
 
 /// Composes the sidecar's DATABASE_URL: stored server URI + application
@@ -74,7 +75,7 @@ pub(crate) async fn start(app: &AppHandle) -> Result<(), AuthError> {
 
     let command = app
         .shell()
-        .sidecar("pontuall-auth")
+        .sidecar(SIDECAR_BIN)
         .map_err(|e| AuthError::SidecarUnavailable(e.to_string()))?
         .env("PORT", port.to_string())
         .env("DATABASE_URL", db_url)
@@ -131,6 +132,25 @@ pub(crate) async fn start(app: &AppHandle) -> Result<(), AuthError> {
     }
 
     *state.port.write().await = Some(port);
+
+    // Best-effort: pre-warm the sidecar's runtime SMTP config so employees
+    // can request self-service password recovery from the portal without an
+    // admin having sent an email first.
+    if let Ok(Some(smtp)) = crate::misc::smtp::get_smtp_config() {
+        if let Err(e) = state.push_smtp_config(&smtp).await {
+            eprintln!("[auth] smtp push failed: {e}");
+        }
+    }
+
+    // Best-effort: push work hours schedule to the sidecar so the missed-punch
+    // notification scheduler knows when to fire.
+    let db_state = app.state::<DbState>();
+    if let Some(hours) = crate::misc::work_hours::get_work_hours(&db_state).await {
+        if let Err(e) = state.push_work_hours(&hours).await {
+            eprintln!("[auth] work hours push failed: {e}");
+        }
+    }
+
     Ok(())
 }
 

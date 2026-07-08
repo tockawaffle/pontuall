@@ -15,9 +15,8 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{ConnectOptions, PgPool, SqlitePool};
 use tokio::sync::RwLock;
 
+use crate::app_flavor::{DATA_DIR_NAME, KEYRING_SERVICE};
 use error::DbError;
-
-pub(crate) const KEYRING_SERVICE: &str = "PontuAll";
 pub(crate) const KEYRING_PG_URI: &str = "postgres_uri";
 pub(crate) const KEYRING_APP_NAME: &str = "app_name";
 
@@ -59,7 +58,7 @@ pub(crate) fn lite_sql(sql: &str) -> String {
 pub(crate) async fn init_sqlite() -> Result<SqlitePool, DbError> {
     let dir = dirs::data_dir()
         .ok_or_else(|| DbError::Config("could not resolve the local data directory".into()))?
-        .join("PontuAll");
+        .join(DATA_DIR_NAME);
     tokio::fs::create_dir_all(&dir)
         .await
         .map_err(|e| DbError::Config(format!("could not create data directory: {e}")))?;

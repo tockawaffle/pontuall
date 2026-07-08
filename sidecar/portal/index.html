@@ -19,11 +19,43 @@
         <input id="password" type="password" required autocomplete="current-password">
         <button id="login-submit" type="submit">Entrar</button>
     </form>
+    <p id="forgot-link" class="forgot-link"><a href="#" id="forgot-link-btn">Esqueci minha senha</a></p>
+
+    <div id="forgot" hidden>
+        <h2>Recuperar senha</h2>
+        <p class="sub" style="margin-bottom:4px">Informe seu e-mail cadastrado para receber o link de redefinição.</p>
+        <form id="forgot-form">
+            <label for="forgot-email">E-mail</label>
+            <input id="forgot-email" type="email" required autocomplete="username">
+            <button id="forgot-submit" type="submit">Enviar link de recuperação</button>
+        </form>
+        <button id="forgot-back" type="button" class="secondary">Voltar ao login</button>
+    </div>
 
     <div id="portal" hidden>
         <h2>Dados cadastrais</h2>
         <dl id="profile"></dl>
         <h2>Registros de ponto</h2>
+        <div class="filters">
+            <select id="filter-month">
+                <option value="">Todos os meses</option>
+                <option value="01">Janeiro</option>
+                <option value="02">Fevereiro</option>
+                <option value="03">Março</option>
+                <option value="04">Abril</option>
+                <option value="05">Maio</option>
+                <option value="06">Junho</option>
+                <option value="07">Julho</option>
+                <option value="08">Agosto</option>
+                <option value="09">Setembro</option>
+                <option value="10">Outubro</option>
+                <option value="11">Novembro</option>
+                <option value="12">Dezembro</option>
+            </select>
+            <select id="filter-year">
+                <option value="">Todos os anos</option>
+            </select>
+        </div>
         <div class="table-wrap">
             <table>
                 <thead>
@@ -33,6 +65,7 @@
                 <tbody id="entries"></tbody>
             </table>
         </div>
+        <p id="no-entries" class="no-entries" hidden>Nenhum registro encontrado para o período selecionado.</p>
         <div class="actions">
             <button id="download" type="button">Baixar meus dados (JSON)</button>
             <button id="signout" type="button" class="secondary">Sair</button>

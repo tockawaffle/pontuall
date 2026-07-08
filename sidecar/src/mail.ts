@@ -113,6 +113,40 @@ export type DataExport = {
     timeEntries: DataExportEntry[];
 };
 
+export async function sendMissedPunchEmail(
+    config: SmtpConfig,
+    to: string,
+    name: string,
+    workDate: string,
+    missing: string[],
+): Promise<void> {
+    const [year, month, day] = workDate.split("-");
+    const dateStr = `${day}/${month}/${year}`;
+    const transporter = createTransporter(config);
+    await transporter.sendMail({
+        from: config.from,
+        to,
+        subject: `PontuAll — marcação pendente em ${dateStr}`,
+        text: [
+            `Olá, ${name}.`,
+            "",
+            `Identificamos que você possui marcação(ões) pendente(s) para o dia ${dateStr}:`,
+            ...missing.map((m) => `• ${m}`),
+            "",
+            "Por favor, regularize sua situação o quanto antes com o responsável.",
+            "",
+            "Esta é uma mensagem automática. Não responda este e-mail.",
+        ].join("\n"),
+        html: `
+            <p>Olá, <strong>${name}</strong>.</p>
+            <p>Identificamos que você possui marcação(ões) pendente(s) para o dia <strong>${dateStr}</strong>:</p>
+            <ul>${missing.map((m) => `<li>${m}</li>`).join("")}</ul>
+            <p>Por favor, regularize sua situação o quanto antes com o responsável.</p>
+            <p style="color:#666;font-size:12px">Esta é uma mensagem automática. Não responda este e-mail.</p>
+        `,
+    });
+}
+
 function escapeHtml(value: string): string {
     return value
         .replace(/&/g, "&amp;")

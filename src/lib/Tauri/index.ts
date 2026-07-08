@@ -284,6 +284,29 @@ export default class TauriApi {
         });
     }
 
+    public static async GetWorkHours() {
+        return this.command<{
+            entry: string;
+            exit: string;
+            exitWeekend: string;
+            toleranceMinutes: number;
+        } | null>("get_work_hours_cmd", {});
+    }
+
+    public static async SaveWorkHours(config: {
+        entry: string;
+        exit: string;
+        exitWeekend: string;
+        toleranceMinutes: number;
+    }) {
+        return this.command<void>("save_work_hours_cmd", {
+            entry: config.entry,
+            exit: config.exit,
+            exitWeekend: config.exitWeekend,
+            toleranceMinutes: config.toleranceMinutes,
+        });
+    }
+
     public static async RequestPunchOtp(email: string) {
         return this.command<boolean>("request_punch_otp", {email});
     }

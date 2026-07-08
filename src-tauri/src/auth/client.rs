@@ -596,6 +596,36 @@ impl AuthState {
         Ok(())
     }
 
+    /// Pushes the work hours schedule to the sidecar so the missed-punch
+    /// notification scheduler knows when to fire checks each day.
+    pub(crate) async fn push_work_hours(
+        &self,
+        hours: &crate::misc::work_hours::WorkHoursDto,
+    ) -> Result<(), AuthError> {
+        let url = format!("{}/internal/work-hours/push", self.base_url().await?);
+        self.request(reqwest::Method::POST, url, None)
+            .json(&json!({ "workHours": hours }))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
+    /// Pushes the stored SMTP config to the sidecar so self-service password
+    /// recovery (initiated from the portal) works without an admin action first.
+    pub(crate) async fn push_smtp_config(
+        &self,
+        smtp: &crate::misc::smtp::SmtpConfigDto,
+    ) -> Result<(), AuthError> {
+        let url = format!("{}/internal/smtp/push", self.base_url().await?);
+        self.request(reqwest::Method::POST, url, None)
+            .json(&json!({ "smtp": smtp }))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     pub(crate) async fn test_smtp(
         &self,
         smtp: &crate::misc::smtp::SmtpConfigDto,

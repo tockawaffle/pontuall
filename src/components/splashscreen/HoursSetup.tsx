@@ -14,7 +14,8 @@ type HoursSetupProps = {
     setHorarioSaida: (value: string) => void,
     horarioSaidaFDS: string,
     setHorarioSaidaFDS: (value: string) => void,
-    setSetupStep: (value: number) => void
+    setSetupStep: (value: number) => void,
+    onContinue: () => void,
 }
 
 export default function HoursSetup(
@@ -27,7 +28,8 @@ export default function HoursSetup(
         setHorarioSaida,
         horarioSaidaFDS,
         setHorarioSaidaFDS,
-        setSetupStep
+        setSetupStep,
+        onContinue,
     }: HoursSetupProps
 ) {
     return (
@@ -137,7 +139,7 @@ export default function HoursSetup(
                 </div>
                 <div className="flex gap-3 pt-2">
                     <Button variant="outline" onClick={() => setSetupStep(0)}>Voltar</Button>
-                    <Button className="min-w-32" onClick={() => setSetupStep(2)} disabled={
+                    <Button className="min-w-32" onClick={onContinue} disabled={
                         horarioEntrada === "" || minutosTolerancia === 0 || horarioSaida === ""
                     }>Continuar</Button>
                 </div>

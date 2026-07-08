@@ -8,10 +8,7 @@ Funcionários batem o ponto com um toque do cartão. O ponto continua funcionand
 [![publish](https://github.com/tockawaffle/pontuall/actions/workflows/build.yml/badge.svg)](https://github.com/tockawaffle/pontuall/actions/workflows/build.yml)
 [![versão](https://img.shields.io/github/v/release/tockawaffle/pontuall?include_prereleases&label=vers%C3%A3o)](https://github.com/tockawaffle/pontuall/releases/latest)
 [![plataforma](https://img.shields.io/badge/plataforma-Windows%2010%2B-0078D6)](https://github.com/tockawaffle/pontuall/releases/latest)
-[![instalador](https://img.shields.io/badge/instalador-assinado%20(authenticode)-brightgreen)](#assinatura-de-código)
 [![Tauri](https://img.shields.io/badge/Tauri-2-24C8D8?logo=tauri&logoColor=white)](https://tauri.app)
-[![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=nextdotjs)](https://nextjs.org)
-[![Bun](https://img.shields.io/badge/Bun-sidecar-14151a?logo=bun)](https://bun.sh)
 
 [Download](#primeiros-passos) · [Primeira execução](#primeira-execução) · [Desenvolvimento](#desenvolvimento) · [Arquitetura](#arquitetura) · [Modelo de segurança](#modelo-de-segurança)
 
@@ -54,13 +51,13 @@ assinatura de ponto na nuvem e prefere manter os registros de frequência dentro
 
 **Requisitos**
 
-| | |
-|---|---|
-| Sistema | Windows 10/11 (64 bits) |
-| Banco de dados | Um servidor PostgreSQL acessível (o app cria e migra o próprio banco) |
+|                   |                                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Sistema           | Windows 10/11 (64 bits)                                                                                             |
+| Banco de dados    | Um servidor PostgreSQL acessível (o app cria e migra o próprio banco)                                               |
 | Leitor de cartões | ACS **ACR122U** (opcional, usado só para ponto por NFC; requer o serviço Cartão Inteligente do Windows, `SCardSvr`) |
-| Cartões | MIFARE Classic 1K (opcional) |
-| SMTP | Qualquer conta SMTP (opcional, para OTP e e-mails de senha) |
+| Cartões           | MIFARE Classic 1K (opcional)                                                                                        |
+| SMTP              | Qualquer conta SMTP (opcional, para OTP e e-mails de senha)                                                         |
 
 **Instalação**
 
@@ -118,10 +115,10 @@ ficará desativada.
 O CI assina os releases da mesma forma. Cadastre dois secrets no repositório e o workflow
 importa o certificado antes do build (sem eles, o build sai sem assinatura):
 
-| Secret | Conteúdo |
-|---|---|
-| `SIGNING_CERT_PFX_BASE64` | Base64 do PFX exportado (`Export-PfxCertificate`) |
-| `SIGNING_CERT_PFX_PASSWORD` | A senha do PFX |
+| Secret                      | Conteúdo                                          |
+| --------------------------- | ------------------------------------------------- |
+| `SIGNING_CERT_PFX_BASE64`   | Base64 do PFX exportado (`Export-PfxCertificate`) |
+| `SIGNING_CERT_PFX_PASSWORD` | A senha do PFX                                    |
 
 ### Testes
 
@@ -200,12 +197,12 @@ O que o app garante e o que ele não garante:
   os avisos do SmartScreen; para isso seria preciso um certificado EV/OV pago.
 - **Segredos** ficam no Gerenciador de Credenciais do Windows (serviço `PontuAll`):
 
-  | Entrada | Finalidade |
-  |---|---|
-  | `postgres_uri` | URI do servidor PostgreSQL (com credenciais) |
-  | `app_name` | Nome da empresa/app → banco `pontuall_{app_name}` |
+  | Entrada              | Finalidade                                                 |
+  | -------------------- | ---------------------------------------------------------- |
+  | `postgres_uri`       | URI do servidor PostgreSQL (com credenciais)               |
+  | `app_name`           | Nome da empresa/app → banco `pontuall_{app_name}`          |
   | `better_auth_secret` | Segredo de assinatura do Better Auth (32 bytes aleatórios) |
-  | `card_master_key` | Chave mestra para derivação das chaves MIFARE por cartão |
+  | `card_master_key`    | Chave mestra para derivação das chaves MIFARE por cartão   |
 
   > **Faça backup da `card_master_key`.** Perdê-la (reinstalação do Windows, troca de perfil)
   > torna todos os cartões provisionados não regraváveis. Um SuperUser pode exportá-la e

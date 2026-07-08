@@ -1,15 +1,18 @@
 {
 	"name": "pontuall",
-	"version": "0.3.0",
+	"version": "0.3.1",
 	"private": true,
 	"scripts": {
 		"dev": "next dev",
 		"build": "next build",
 		"start": "next start",
 		"sidecar:build": "cd sidecar && bun install && bun run build",
+		"sidecar:build:test": "cd sidecar && bun install && bun run build:test",
 		"tauri": "tauri",
 		"tauri:dev": "tauri dev",
-		"tauri:build": "tauri build"
+		"tauri:dev:test": "tauri dev --config src-tauri/tauri.conf.test.json --features test-flavor",
+		"tauri:build": "tauri build",
+		"tauri:build:test": "tauri build --config src-tauri/tauri.conf.test.json --features test-flavor"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.6.0",

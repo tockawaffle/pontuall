@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use tauri::AppHandle;
 
+use crate::app_flavor::DEFAULT_SIDECAR_PORT;
 use crate::auth::guard;
 use crate::auth::permissions::PermissionAction;
 use crate::db::error::DbError;
@@ -8,8 +9,6 @@ use crate::db::{keyring_get, keyring_set};
 
 pub(crate) const KEYRING_SIDECAR_PORT: &str = "sidecar_port";
 pub(crate) const KEYRING_PUBLIC_URL: &str = "public_url";
-
-pub(crate) const DEFAULT_SIDECAR_PORT: u16 = 3435;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

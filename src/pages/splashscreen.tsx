@@ -85,52 +85,69 @@ export default function Splashscreen() {
     }, []);
 
     useEffect(() => {
-        if (backendSetup && typeof window !== "undefined") {
-            localStorage.setItem("AppConfigured", "true");
-            setAppConfigured(true);
+        if (!backendSetup || typeof window === "undefined") return;
 
-            TauriApi.SetupApp();
+        localStorage.setItem("AppConfigured", "true");
+        setAppConfigured(true);
 
-            const unlisten = TauriApi.ListenEvent("splashscreen:progress", (event) => {
-                const newEvent = event.payload as [key: string, true]
+        const unlisten = TauriApi.ListenEvent("splashscreen:progress", (event) => {
+            const newEvent = event.payload as [key: string, true]
 
-                switch (newEvent[0]) {
-                    case "database":
-                        setCurrentStep(2)
-                        setProgress(30)
-                        break
-                    case "cache":
-                        setCurrentStep(3)
-                        setProgress(60)
-                        break
-                    case "finish":
-                        setCurrentStep(4)
-                        setProgress(100)
-                        break
+            switch (newEvent[0]) {
+                case "database":
+                    setCurrentStep(2)
+                    setProgress(30)
+                    break
+                case "cache":
+                    setCurrentStep(3)
+                    setProgress(60)
+                    break
+                case "finish":
+                    setCurrentStep(4)
+                    setProgress(100)
+                    break
+            }
+        })
+
+        const syncUnlisten = TauriApi.ListenEvent("sync:users", (event) => {
+            console.log(event)
+        })
+
+        // Migrate work hours from localStorage for existing installations that
+        // predate the app_config table. For new installs, handleHoursContinue
+        // already wrote to SQLite; GetWorkHours returns a value so this is a no-op.
+        void (async () => {
+            try {
+                const existing = await TauriApi.GetWorkHours();
+                if (!existing) {
+                    await TauriApi.SaveWorkHours({
+                        entry: localStorage.getItem("HorarioEntrada") ?? "08:00:00",
+                        exit: localStorage.getItem("HorarioSaida") ?? "17:00:00",
+                        exitWeekend: localStorage.getItem("HorarioSaidaFDS") ?? "12:00:00",
+                        toleranceMinutes: parseInt(localStorage.getItem("MinutosTolerancia") ?? "10", 10) || 10,
+                    });
                 }
-            })
+            } catch (e) {
+                console.error("[migration] work hours:", e);
+            }
+            TauriApi.SetupApp();
+        })();
 
-            const syncUnlisten = TauriApi.ListenEvent("sync:users", (event) => {
-                console.log(event)
-            })
-
-            return () => {
-                unlisten.then(f => f());
-                syncUnlisten.then(f => f());
-            };
-        }
+        return () => {
+            unlisten.then(f => f());
+            syncUnlisten.then(f => f());
+        };
     }, [backendSetup])
 
-    useEffect(() => {
-        const values = [horarioEntrada, minutosTolerancia, horarioSaida];
-
-        if (values.every(value => value !== "")) {
-            localStorage.setItem("HorarioEntrada", horarioEntrada);
-            localStorage.setItem("MinutosTolerancia", minutosTolerancia.toString());
-            localStorage.setItem("HorarioSaida", horarioSaida);
-            localStorage.setItem("HorarioSaidaFDS", horarioSaidaFDS);
-        }
-    }, [horarioEntrada, minutosTolerancia, horarioSaida, horarioSaidaFDS])
+    async function handleHoursContinue() {
+        await TauriApi.SaveWorkHours({
+            entry: horarioEntrada,
+            exit: horarioSaida,
+            exitWeekend: horarioSaidaFDS || "12:00:00",
+            toleranceMinutes: minutosTolerancia,
+        }).catch(console.error);
+        setSetupStep(2);
+    }
 
     if (AppConfigured) {
         return (
@@ -191,6 +208,7 @@ export default function Splashscreen() {
                     horarioSaidaFDS={horarioSaidaFDS}
                     setHorarioSaidaFDS={setHorarioSaidaFDS}
                     setSetupStep={setSetupStep}
+                    onContinue={handleHoursContinue}
                 />
             )}
 

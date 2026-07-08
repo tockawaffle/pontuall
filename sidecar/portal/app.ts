@@ -25,6 +25,8 @@ type PortalData = {
 };
 
 const loginForm = el<HTMLFormElement>("login");
+const forgotDiv = el<HTMLDivElement>("forgot");
+const forgotForm = el<HTMLFormElement>("forgot-form");
 const portal = el<HTMLDivElement>("portal");
 const msg = el<HTMLDivElement>("msg");
 
@@ -49,6 +51,42 @@ function fmtDate(day: string): string {
     return `${dayOfMonth}/${month}/${year}`;
 }
 
+function renderEntries(): void {
+    if (!exportData) return;
+
+    const monthSel = el<HTMLSelectElement>("filter-month").value;
+    const yearSel = el<HTMLSelectElement>("filter-year").value;
+
+    const filtered = exportData.timeEntries.filter((e) => {
+        if (monthSel && e.date.slice(5, 7) !== monthSel) return false;
+        if (yearSel && e.date.slice(0, 4) !== yearSel) return false;
+        return true;
+    });
+
+    const tbody = el<HTMLTableSectionElement>("entries");
+    tbody.innerHTML = "";
+    for (const entry of filtered) {
+        const cells = [
+            fmtDate(entry.date),
+            fmtTime(entry.clockIn),
+            fmtTime(entry.lunchOut),
+            fmtTime(entry.lunchReturn),
+            fmtTime(entry.clockOut),
+            entry.totalHours ?? "—",
+        ];
+        const tr = document.createElement("tr");
+        for (const cell of cells) {
+            const td = document.createElement("td");
+            td.textContent = cell;
+            tr.append(td);
+        }
+        tbody.append(tr);
+    }
+
+    const noEntries = el<HTMLParagraphElement>("no-entries");
+    noEntries.hidden = filtered.length > 0;
+}
+
 function render(data: PortalData): void {
     exportData = data;
 
@@ -69,27 +107,23 @@ function render(data: PortalData): void {
         profile.append(dt, dd);
     }
 
-    const tbody = el<HTMLTableSectionElement>("entries");
-    tbody.innerHTML = "";
-    for (const entry of data.timeEntries) {
-        const cells = [
-            fmtDate(entry.date),
-            fmtTime(entry.clockIn),
-            fmtTime(entry.lunchOut),
-            fmtTime(entry.lunchReturn),
-            fmtTime(entry.clockOut),
-            entry.totalHours ?? "—",
-        ];
-        const tr = document.createElement("tr");
-        for (const cell of cells) {
-            const td = document.createElement("td");
-            td.textContent = cell;
-            tr.append(td);
-        }
-        tbody.append(tr);
+    // Populate year dropdown from available data (deduplicated, descending).
+    const yearSel = el<HTMLSelectElement>("filter-year");
+    const years = [...new Set(data.timeEntries.map((e) => e.date.slice(0, 4)))].sort(
+        (a, b) => Number(b) - Number(a),
+    );
+    yearSel.innerHTML = '<option value="">Todos os anos</option>';
+    for (const year of years) {
+        const opt = document.createElement("option");
+        opt.value = year;
+        opt.textContent = year;
+        yearSel.append(opt);
     }
 
+    renderEntries();
+
     loginForm.hidden = true;
+    el<HTMLParagraphElement>("forgot-link").hidden = true;
     portal.hidden = false;
 }
 
@@ -106,6 +140,8 @@ async function fetchData(): Promise<boolean> {
     render((await res.json()) as PortalData);
     return true;
 }
+
+// --- Login ---
 
 loginForm.addEventListener("submit", async (e) => {
     e.preventDefault();
@@ -138,6 +174,48 @@ loginForm.addEventListener("submit", async (e) => {
     }
 });
 
+// --- Forgot password ---
+
+el<HTMLAnchorElement>("forgot-link-btn").addEventListener("click", (e) => {
+    e.preventDefault();
+    clearMsg();
+    loginForm.hidden = true;
+    el<HTMLParagraphElement>("forgot-link").hidden = true;
+    forgotDiv.hidden = false;
+});
+
+el<HTMLButtonElement>("forgot-back").addEventListener("click", () => {
+    clearMsg();
+    forgotDiv.hidden = true;
+    loginForm.hidden = false;
+    el<HTMLParagraphElement>("forgot-link").hidden = false;
+});
+
+forgotForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    clearMsg();
+    const button = el<HTMLButtonElement>("forgot-submit");
+    button.disabled = true;
+    try {
+        await fetch("/api/auth/request-password-reset", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: el<HTMLInputElement>("forgot-email").value }),
+        });
+    } catch {
+        // fall through — always show the same message to prevent enumeration
+    } finally {
+        button.disabled = false;
+    }
+    show(
+        "success",
+        "Se este e-mail estiver cadastrado, você receberá um link em breve. Verifique também a caixa de spam.",
+    );
+    el<HTMLInputElement>("forgot-email").value = "";
+});
+
+// --- Portal actions ---
+
 el<HTMLButtonElement>("download").addEventListener("click", () => {
     if (!exportData) return;
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" });
@@ -150,13 +228,18 @@ el<HTMLButtonElement>("download").addEventListener("click", () => {
 
 el<HTMLButtonElement>("signout").addEventListener("click", async () => {
     try {
-        await fetch("/api/auth/sign-out", { method: "POST" });
+        await fetch("/api/auth/sign-out", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: "{}",
+        });
     } catch {
         // signing out of a dead session is fine
     }
     exportData = null;
     portal.hidden = true;
     loginForm.hidden = false;
+    el<HTMLParagraphElement>("forgot-link").hidden = false;
     clearMsg();
 });
 
@@ -189,6 +272,11 @@ el<HTMLFormElement>("change-password").addEventListener("submit", async (e) => {
         button.disabled = false;
     }
 });
+
+// --- Filters ---
+
+el<HTMLSelectElement>("filter-month").addEventListener("change", renderEntries);
+el<HTMLSelectElement>("filter-year").addEventListener("change", renderEntries);
 
 // Restore an existing session on load.
 void fetchData().catch(() => undefined);

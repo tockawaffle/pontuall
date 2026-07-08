@@ -4,8 +4,11 @@ import { $ } from "bun";
 import { existsSync, mkdirSync } from "node:fs";
 
 const triple = "x86_64-pc-windows-msvc";
+const sidecarName = process.argv.includes("--test")
+    ? "pontuall-auth-test"
+    : (process.env.PONTUALL_SIDECAR_NAME ?? "pontuall-auth");
 const outDir = "../src-tauri/binaries";
-const outfile = `${outDir}/pontuall-auth-${triple}.exe`;
+const outfile = `${outDir}/${sidecarName}-${triple}.exe`;
 
 if (!existsSync(outDir)) {
     mkdirSync(outDir, { recursive: true });

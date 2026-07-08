@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder};
 
+use crate::app_flavor::APP_DISPLAY_NAME;
 use crate::db::error::DbError;
 use crate::db::{connect_postgres, keyring_get, DbState, KEYRING_APP_NAME, KEYRING_PG_URI};
 
@@ -84,7 +85,7 @@ fn finish(app: &AppHandle, task: Task) -> Result<(), DbError> {
             let _ = main_window.show();
         } else {
             WebviewWindowBuilder::new(app, "main".to_string(), WebviewUrl::default())
-                .title("PontuAll")
+                .title(APP_DISPLAY_NAME)
                 .center()
                 .maximized(true)
                 .visible(true)

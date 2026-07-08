@@ -1,10 +1,10 @@
 {
-	"productName": "PontuAll",
+	"productName": "PontuAll Test",
 	"version": "0.3.1",
-	"identifier": "com.tockanest.pontuall",
+	"identifier": "com.tockanest.pontuall.test",
 	"build": {
-		"beforeDevCommand": "bun run sidecar:build && bun run dev",
-		"beforeBuildCommand": "bun run sidecar:build && bun run build",
+		"beforeDevCommand": "bun run sidecar:build:test && bun run dev",
+		"beforeBuildCommand": "bun run sidecar:build:test && bun run build",
 		"devUrl": "http://localhost:3000",
 		"frontendDist": "../out"
 	},
@@ -13,7 +13,7 @@
 		"windows": [
 			{
 				"label": "splashscreen",
-				"title": "PontuAll — Configuração",
+				"title": "PontuAll Test — Configuração",
 				"width": 920,
 				"height": 640,
 				"minWidth": 880,
@@ -36,7 +36,7 @@
 			"icons/clock.ico"
 		],
 		"externalBin": [
-			"binaries/pontuall-auth"
+			"binaries/pontuall-auth-test"
 		],
 		"windows": {
 			"signCommand": "pwsh -NoProfile -ExecutionPolicy Bypass -File ../scripts/sign.ps1 %1"

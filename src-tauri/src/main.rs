@@ -32,7 +32,9 @@ use crate::misc::punch::{
     set_smtp_config_cmd, test_smtp_config_cmd, verify_punch_otp,
 };
 use crate::misc::setup::{complete_setup, SetupState};
+use crate::misc::work_hours::{get_work_hours_cmd, save_work_hours_cmd};
 
+mod app_flavor;
 mod auth;
 mod card;
 mod db;
@@ -118,6 +120,9 @@ fn main() {
             verify_punch_otp,
             get_advanced_config_cmd,
             set_advanced_config_cmd,
+            // Work hours (schedule config, persisted to DB)
+            get_work_hours_cmd,
+            save_work_hours_cmd,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application");

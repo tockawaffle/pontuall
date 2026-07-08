@@ -20,6 +20,7 @@ use windows::Win32::Security::WinTrust::{
     WTD_STATEACTION_VERIFY, WTD_UI_NONE,
 };
 
+use crate::app_flavor::SIDECAR_BIN;
 use crate::auth::error::AuthError;
 
 /// Set by build.rs; `None` when the build machine had no signing setup.
@@ -39,7 +40,7 @@ fn sidecar_path() -> Result<PathBuf, AuthError> {
     Ok(exe
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join("pontuall-auth.exe"))
+        .join(format!("{SIDECAR_BIN}.exe")))
 }
 
 /// Refuses to continue when the sidecar on disk is unsigned, tampered with,
