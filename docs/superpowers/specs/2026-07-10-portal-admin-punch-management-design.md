@@ -59,10 +59,16 @@ every new capability is enforced **server-side, independent of the client**:
 
 - The portal is served by the sidecar, which already reads `employees` and
   `time_entries` straight from Postgres via Prisma `$queryRaw`
-  (`sidecar/src/portal.ts`). Browsers cannot call Tauri commands, so portal
-  writes go sidecar → Postgres. This is consistent with the existing
-  offline-first model: Postgres is the source of truth; the kiosk mirrors it into
-  SQLite last-write-wins by `updated_at`.
+  (`sidecar/src/portal.ts`). The portal's intended use is an admin on another
+  device or a proxied domain — an ordinary browser tab that is **not** the
+  kiosk's Tauri webview, so the Tauri IPC bridge isn't present and `invoke` /
+  `window.__TAURI__` / `isTauri` feature-detection returns false there. (Tauri
+  *can* be called from a page when it runs inside the webview; that just isn't
+  this page's context.) So portal writes go sidecar → Postgres, and we do not
+  build a dual IPC/HTTP path — the kiosk already has its own admin editing UI.
+  This is consistent with the existing offline-first model: Postgres is the
+  source of truth; the kiosk mirrors it into SQLite last-write-wins by
+  `updated_at`.
 - The kiosk (`src-tauri/`) reconciles on a cycle: `run_sync` flushes the offline
   outbox to Postgres, then `pull_master_data` pulls `employees` + `time_entries`
   back into SQLite. `pull_from_pg` upserts LWW by `updated_at` but is
