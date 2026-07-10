@@ -128,10 +128,11 @@ and runs `userHasPermission`, returning either the authenticated user or an earl
 
 ### Schema
 
-Add `exclude_from_report BOOLEAN NOT NULL DEFAULT false` to `employees`:
+Add `exclude_from_report BOOLEAN NOT NULL DEFAULT false` to `employees`
+(migration `0006` — `0005` is already taken by `app_config`):
 
-- `src-tauri/migrations/postgres/0005_employee_exclude_from_report.sql`
-- `src-tauri/migrations/sqlite/0005_employee_exclude_from_report.sql`
+- `src-tauri/migrations/postgres/0006_employee_exclude_from_report.sql`
+- `src-tauri/migrations/sqlite/0006_employee_exclude_from_report.sql`
 - Add the field to the `Employee` struct and `UserExternal`
   (`src-tauri/src/db/models.rs`), threaded through the SQLite/PG upsert binds and
   `pull_from_pg` so it round-trips in sync.
@@ -183,20 +184,38 @@ need one stable URL) and add a separate **list** of additional trusted origins
 for the auth origin check. Better Auth trusts the union of: built-in LAN origins
 (auto-detected) + `public_url` + the trusted-origins list.
 
+**Storage — `app_config`, not the keyring.** Domain config is non-secret, so
+both `public_url` and the new `trusted_origins` live in the existing synced
+`app_config` key/value table (`src-tauri/src/db/repo/config.rs`; keys
+`public_url` and `trusted_origins`, the latter newline-separated), read via
+`config::get_local` and written via `config::set_local` + an `upsert_app_config`
+outbox enqueue (so it replicates to Postgres). No new table or migration —
+`app_config` already exists. This also directly serves the requirement that the
+Rust backend hold the values so it can pass them to the sidecar / Better Auth.
+
+**One-time migration.** `public_url` currently lives in the keyring
+(`KEYRING_PUBLIC_URL`). On startup, if `app_config` has no `public_url` key but
+the keyring does, copy the keyring value into `app_config` (then the keyring
+entry is ignored). `sidecar_port` stays in the keyring — it is not domain config.
+
 **Rust config (`src-tauri/src/misc/advanced.rs`):**
-- New keyring entry `trusted_origins`, stored newline-separated.
-- `configured_trusted_origins() -> Vec<String>`.
+- `configured_public_url()` and new `configured_trusted_origins()` read from
+  `app_config` (via the local SQLite pool) instead of the keyring; both become
+  async / take the DB state.
 - `AdvancedConfigDto` gains `trusted_origins: Vec<String>` (camelCase
   `trustedOrigins`); `get_advanced_config_cmd` returns it.
 - `set_advanced_config_cmd` accepts `trusted_origins: Vec<String>`, validates
   each (trim, strip trailing slash, must start `http://` or `https://`, drop
-  empties, dedupe — same rule as the existing `public_url` check), persists, then
-  pushes to the running sidecar.
+  empties, dedupe — same rule as the existing `public_url` check), persists to
+  `app_config`, then pushes to the running sidecar.
 
-**Sidecar spawn (`src-tauri/src/auth/sidecar.rs`):** pass
-`.env("PONTUALL_PUBLIC_URL", configured_public_url())` and
-`.env("PONTUALL_TRUSTED_ORIGINS", configured_trusted_origins().join(","))` so
-trust is established at boot without waiting for a push.
+**Sidecar spawn (`src-tauri/src/auth/sidecar.rs`):** read the two values from
+`app_config` and pass `.env("PONTUALL_PUBLIC_URL", …)` and
+`.env("PONTUALL_TRUSTED_ORIGINS", …join(","))` so trust is established at boot
+without waiting for a push. Ordering is safe: `db::init_sqlite()` runs in
+`.setup()` (main.rs) and the sidecar is spawned later from the
+`start_backend_services` command (`sidecar::start`), so the SQLite pool is always
+available when the spawn reads `app_config`.
 
 **Sidecar runtime (`sidecar/src/runtime.ts`):** `runtime` gains
 `trustedOrigins: string[]`; parse `PONTUALL_TRUSTED_ORIGINS` (comma-separated) at
