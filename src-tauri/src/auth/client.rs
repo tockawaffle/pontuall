@@ -294,11 +294,12 @@ impl AuthState {
         &self,
         email: &str,
         smtp: &crate::misc::smtp::SmtpConfigDto,
+        public_url: Option<&str>,
         actor: Option<&UserLoggedDto>,
     ) -> Result<(), AuthError> {
         let url = format!("{}/internal/password-setup/send", self.base_url().await?);
         let mut body = json!({ "email": email, "smtp": smtp });
-        if let Some(public_url) = crate::misc::advanced::configured_public_url() {
+        if let Some(public_url) = public_url {
             body["publicBaseUrl"] = json!(public_url);
         }
         if let Some(actor) = actor {
