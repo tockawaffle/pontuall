@@ -5,14 +5,17 @@
 
 ## Goal
 
-Two features for the employee self-service portal (`sidecar/portal/`, served by
-the Bun sidecar):
+Three features for the employee self-service portal (`sidecar/portal/`, served
+by the Bun sidecar):
 
 1. **Admin punch management.** Administrators can view *every* employee's punches
    from the portal and fully manage them — correct any punch field and delete a
    day — so corrections can happen from a browser instead of only at the kiosk.
 2. **Report opt-out.** An administrator can hide *themselves* from the Excel
    attendance report via a self-service toggle in the portal.
+3. **External / proxied-domain access.** The portal must work when reached
+   through one or more proxied public domains (cloudflared, playit, a VPN
+   hostname) simultaneously, without Better Auth rejecting the request origin.
 
 "Done" means: an administrator logged into the portal sees an admin panel that
 lists all employees, shows a selected employee's punch history, and lets them
@@ -158,6 +161,68 @@ tampered frontend re-sends a flag-stripped payload.
 A "Não aparecer nos relatórios" checkbox in the admin's own portal section, bound
 to `excludeFromReport` from `/portal/data`, toggling via the endpoint above.
 
+## Feature 3 — External / proxied-domain access (multi-origin)
+
+### Problem
+
+Better Auth validates the request `Origin` against `trustedOrigins` on
+state-changing requests; an origin that isn't listed is rejected, so portal
+sign-in fails. A cloudflared/playit domain is not a local NIC, so
+`publicOrigins()` never auto-detects it. Worse, the sidecar spawn
+(`src-tauri/src/auth/sidecar.rs`) does **not** pass the configured public URL as
+env, and `set_advanced_config_cmd` does not push it either — the configured
+`public_url` only reaches the sidecar lazily, as a side effect of sending a
+password-setup email. So `runtime.publicOrigin` is typically `null` and no
+proxied domain is trusted. The operator needs several proxied domains trusted at
+once.
+
+### Design
+
+Keep `public_url` (single) as the canonical base for **emailed links** (emails
+need one stable URL) and add a separate **list** of additional trusted origins
+for the auth origin check. Better Auth trusts the union of: built-in LAN origins
+(auto-detected) + `public_url` + the trusted-origins list.
+
+**Rust config (`src-tauri/src/misc/advanced.rs`):**
+- New keyring entry `trusted_origins`, stored newline-separated.
+- `configured_trusted_origins() -> Vec<String>`.
+- `AdvancedConfigDto` gains `trusted_origins: Vec<String>` (camelCase
+  `trustedOrigins`); `get_advanced_config_cmd` returns it.
+- `set_advanced_config_cmd` accepts `trusted_origins: Vec<String>`, validates
+  each (trim, strip trailing slash, must start `http://` or `https://`, drop
+  empties, dedupe — same rule as the existing `public_url` check), persists, then
+  pushes to the running sidecar.
+
+**Sidecar spawn (`src-tauri/src/auth/sidecar.rs`):** pass
+`.env("PONTUALL_PUBLIC_URL", configured_public_url())` and
+`.env("PONTUALL_TRUSTED_ORIGINS", configured_trusted_origins().join(","))` so
+trust is established at boot without waiting for a push.
+
+**Sidecar runtime (`sidecar/src/runtime.ts`):** `runtime` gains
+`trustedOrigins: string[]`; parse `PONTUALL_TRUSTED_ORIGINS` (comma-separated) at
+boot.
+
+**Sidecar auth (`sidecar/src/auth.ts`):** the `trustedOrigins` callback appends
+`...runtime.trustedOrigins` (deduped with the existing LAN + `publicOrigin`
+set).
+
+**Runtime push (`sidecar/src/index.ts`):** new shared-key-gated
+`POST /internal/public-origins/push`, body
+`{ publicOrigin?: string | null, trustedOrigins?: string[] }`, normalizes and
+sets `runtime.publicOrigin` / `runtime.trustedOrigins`. Called by
+`set_advanced_config_cmd` (via a new `push_public_origins` method on the auth
+client, mirroring the existing `smtp/push` and `work-hours/push` methods) so a
+domain change takes effect without a sidecar restart.
+
+**Frontend (`src/components/main/Admin.tsx`, `src/lib/Tauri/index.ts`):** the
+Advanced settings card ("Avançado — rede e links de senha") gains a small
+add/remove list editor for trusted origins; `advancedForm` carries
+`trustedOrigins: string[]`; `GetAdvancedConfig` returns them and
+`SetAdvancedConfig` sends them. This screen is already gated by
+`EditHierarchy`.
+
+Origins are stored/compared as bare origins (`scheme://host[:port]`, no path).
+
 ## Explicitly out of scope
 
 - The kiosk commands `update_cache_hour_data` / `delete_time_entry_day` are not
@@ -179,3 +244,6 @@ to `excludeFromReport` from `/portal/data`, toggling via the endpoint above.
   Excel report; clearing it restores them.
 - Audit log contains entries for the admin's reads, edits, deletes, and the
   visibility toggle, and the chain still verifies.
+- With two proxied domains saved in Advanced settings, portal sign-in succeeds
+  over both (no origin rejection) and over the LAN, with no sidecar restart after
+  saving; emailed reset links still use the single `public_url`.
