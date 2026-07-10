@@ -8,7 +8,7 @@ import { ensureAuthSchema } from "./migrate";
 import { startMissedPunchScheduler, updateWorkHoursSchedule, type WorkHoursSchedule } from "./missed-punch";
 import { loadPortalExport, portalPage, resetPage } from "./portal";
 import { issuePunchOtp, verifyPunchOtp } from "./punch-otp";
-import { configuredPublicOrigin, publicOrigins, runtime } from "./runtime";
+import { configuredPublicOrigin, configuredTrustedOrigins, publicOrigins, runtime } from "./runtime";
 
 await ensureAuthSchema(prisma);
 
@@ -28,6 +28,7 @@ function keyMatches(provided: string): boolean {
 // stay gated by the shared key; /api/auth is guarded by Better Auth itself.
 // PONTUALL_PUBLIC_URL overrides the auto-detected LAN address in the links.
 runtime.publicOrigin = configuredPublicOrigin() ?? publicOrigins(port)[0] ?? null;
+runtime.trustedOrigins = configuredTrustedOrigins();
 
 const server = Bun.serve({
 	hostname: "0.0.0.0",
@@ -325,6 +326,23 @@ const server = Bun.serve({
 				return Response.json({ error: "smtp required" }, { status: 400 });
 			}
 			runtime.smtp = body.smtp;
+			return Response.json({ ok: true });
+		}
+
+		if (url.pathname === "/internal/public-origins/push" && request.method === "POST") {
+			const body = (await request.json()) as {
+				publicOrigin?: string | null;
+				trustedOrigins?: string[];
+			};
+			if (body.publicOrigin !== undefined) {
+				const value = body.publicOrigin?.trim().replace(/\/+$/, "");
+				runtime.publicOrigin = value && value.length > 0 ? value : null;
+			}
+			if (Array.isArray(body.trustedOrigins)) {
+				runtime.trustedOrigins = body.trustedOrigins
+					.map((o) => o.trim().replace(/\/+$/, ""))
+					.filter((o) => o.length > 0);
+			}
 			return Response.json({ ok: true });
 		}
 
