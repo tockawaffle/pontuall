@@ -51,6 +51,15 @@ pub(crate) async fn start(app: &AppHandle) -> Result<(), AuthError> {
     let db_url = database_url()?;
     let secret = auth_secret()?;
 
+    // Domain config lives in app_config; migrate the legacy keyring value once,
+    // then hand the origins to the sidecar so Better Auth trusts them at boot.
+    let db_state = app.state::<DbState>();
+    crate::misc::advanced::migrate_domain_config_from_keyring(&db_state)
+        .await
+        .map_err(|e| AuthError::Internal(e.to_string()))?;
+    let public_url = crate::misc::advanced::configured_public_url(&db_state).await;
+    let trusted_origins = crate::misc::advanced::configured_trusted_origins(&db_state).await;
+
     // Prefer a stable port (Settings → Avançado, default 3435): password
     // links are e-mailed with the machine's address baked in, and a fixed
     // port keeps them valid across app restarts. Fall back to an ephemeral
@@ -80,7 +89,9 @@ pub(crate) async fn start(app: &AppHandle) -> Result<(), AuthError> {
         .env("PORT", port.to_string())
         .env("DATABASE_URL", db_url)
         .env("BETTER_AUTH_SECRET", secret)
-        .env("PONTUALL_SHARED_KEY", state.shared_key.clone());
+        .env("PONTUALL_SHARED_KEY", state.shared_key.clone())
+        .env("PONTUALL_PUBLIC_URL", public_url.clone().unwrap_or_default())
+        .env("PONTUALL_TRUSTED_ORIGINS", trusted_origins.join(","));
 
     let (mut rx, child) = command
         .spawn()

@@ -146,13 +146,12 @@ pub(crate) async fn set_advanced_config_cmd(
     save_advanced(&db, port, &public_url, &trusted_origins).await?;
 
     // Push to the running sidecar so the change applies without a restart.
-    // (push_public_origins added in Task 3.)
-    // let auth = app.state::<crate::auth::AuthState>();
-    // let public = configured_public_url(&db).await;
-    // let origins = configured_trusted_origins(&db).await;
-    // if let Err(e) = auth.push_public_origins(public.as_deref(), &origins).await {
-    //     eprintln!("[advanced] public-origins push failed: {e}");
-    // }
+    let auth = app.state::<crate::auth::AuthState>();
+    let public = configured_public_url(&db).await;
+    let origins = configured_trusted_origins(&db).await;
+    if let Err(e) = auth.push_public_origins(public.as_deref(), &origins).await {
+        eprintln!("[advanced] public-origins push failed: {e}");
+    }
     Ok(true)
 }
 

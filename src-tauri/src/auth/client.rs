@@ -627,6 +627,23 @@ impl AuthState {
         Ok(())
     }
 
+    /// Pushes the public origin (e-mail base) and the extra trusted origins to
+    /// the sidecar so Better Auth's origin check accepts proxied domains
+    /// without a restart.
+    pub(crate) async fn push_public_origins(
+        &self,
+        public_origin: Option<&str>,
+        trusted: &[String],
+    ) -> Result<(), AuthError> {
+        let url = format!("{}/internal/public-origins/push", self.base_url().await?);
+        self.request(reqwest::Method::POST, url, None)
+            .json(&json!({ "publicOrigin": public_origin, "trustedOrigins": trusted }))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
     pub(crate) async fn test_smtp(
         &self,
         smtp: &crate::misc::smtp::SmtpConfigDto,
