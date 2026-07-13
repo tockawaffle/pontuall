@@ -6,7 +6,7 @@ import { prisma } from "./db";
 import { sendDataExportEmail, sendSmtpTestEmail, type DataExport, type SmtpConfig } from "./mail";
 import { ensureAuthSchema } from "./migrate";
 import { startMissedPunchScheduler, updateWorkHoursSchedule, type WorkHoursSchedule } from "./missed-punch";
-import { loadAdminEmployees, loadEmployeePunches, loadPortalExport, portalPage, resetPage, setReportVisibility } from "./portal";
+import { deletePunchDay, loadAdminEmployees, loadEmployeePunches, loadPortalExport, portalPage, resetPage, setPunchField, setReportVisibility } from "./portal";
 import { issuePunchOtp, verifyPunchOtp } from "./punch-otp";
 import { configuredPublicOrigin, configuredTrustedOrigins, publicOrigins, runtime } from "./runtime";
 
@@ -193,6 +193,52 @@ const server = Bun.serve({
 				userAgent: request.headers.get("user-agent"),
 			});
 			return Response.json({ entries });
+		}
+
+		if (url.pathname === "/portal/admin/punch" && request.method === "POST") {
+			const gate = await requireAdmin(request, { punch: ["write-others"], hours: ["edit"] });
+			if (!gate.ok) return gate.response;
+			const body = (await request.json()) as {
+				employeeId?: string; date?: string; field?: string; value?: string;
+			};
+			const okDate = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? "");
+			const okTime = /^\d{2}:\d{2}$/.test(body.value ?? "");
+			const okField = ["clockIn", "lunchOut", "lunchReturn", "clockOut"].includes(body.field ?? "");
+			if (!body.employeeId || !okDate || !okTime || !okField) {
+				return Response.json({ error: "parâmetros inválidos" }, { status: 400 });
+			}
+			try {
+				await setPunchField(body.employeeId, body.date!, body.field!, body.value!);
+			} catch (e) {
+				return Response.json({ error: e instanceof Error ? e.message : "erro" }, { status: 400 });
+			}
+			void logAudit({
+				actorId: gate.user.id, actorName: gate.user.name, actorType: "admin",
+				action: "portal/punch-edit", resource: `employee:${body.employeeId}`,
+				success: true, ipAddress: server.requestIP(request)?.address ?? null,
+				userAgent: request.headers.get("user-agent"),
+				payload: { date: body.date, field: body.field },
+			});
+			return Response.json({ ok: true });
+		}
+
+		if (url.pathname === "/portal/admin/punch/delete" && request.method === "POST") {
+			const gate = await requireAdmin(request, { punch: ["delete-others"] });
+			if (!gate.ok) return gate.response;
+			const body = (await request.json()) as { employeeId?: string; date?: string };
+			const okDate = /^\d{4}-\d{2}-\d{2}$/.test(body.date ?? "");
+			if (!body.employeeId || !okDate) {
+				return Response.json({ error: "parâmetros inválidos" }, { status: 400 });
+			}
+			await deletePunchDay(body.employeeId, body.date!);
+			void logAudit({
+				actorId: gate.user.id, actorName: gate.user.name, actorType: "admin",
+				action: "portal/punch-delete", resource: `employee:${body.employeeId}`,
+				success: true, ipAddress: server.requestIP(request)?.address ?? null,
+				userAgent: request.headers.get("user-agent"),
+				payload: { date: body.date },
+			});
+			return Response.json({ ok: true });
 		}
 
 		if (url.pathname === "/internal/promote-auth-admin" && request.method === "POST") {

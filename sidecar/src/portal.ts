@@ -132,3 +132,60 @@ export async function setReportVisibility(
     `;
     return affected;
 }
+
+const PUNCH_COLUMN: Record<string, string> = {
+    clockIn: "clock_in",
+    lunchOut: "lunch_out",
+    lunchReturn: "lunch_return",
+    clockOut: "clock_out",
+};
+
+/** Sets one punch field (local HH:MM on the given ISO date). Merges
+ * punch_sources[column] = "portal_admin". Postgres is authoritative; the kiosk
+ * pulls this row LWW by updated_at. */
+export async function setPunchField(
+    employeeId: string,
+    dateISO: string,
+    field: string,
+    localTime: string,
+): Promise<void> {
+    const column = PUNCH_COLUMN[field];
+    if (!column) throw new Error("campo inválido");
+    const ts = new Date(`${dateISO}T${localTime}:00`);
+    if (Number.isNaN(ts.getTime())) throw new Error("hora inválida");
+
+    // punch_sources is TEXT — merge in JS.
+    const existing = await prisma.$queryRaw<{ punch_sources: string | null }[]>`
+        SELECT punch_sources FROM time_entries
+        WHERE employee_id = ${employeeId} AND work_date = ${dateISO}::date
+    `;
+    const sources: Record<string, string> = existing[0]?.punch_sources
+        ? (JSON.parse(existing[0].punch_sources) as Record<string, string>)
+        : {};
+    sources[column] = "portal_admin";
+    const sourcesJson = JSON.stringify(sources);
+
+    const id = crypto.randomUUID();
+    await prisma.$executeRawUnsafe(
+        `INSERT INTO time_entries (id, employee_id, work_date, ${column}, updated_at, punch_sources)
+         VALUES ($1, $2, $3::date, $4, now(), $5)
+         ON CONFLICT (employee_id, work_date) DO UPDATE SET
+           ${column} = EXCLUDED.${column},
+           updated_at = EXCLUDED.updated_at,
+           punch_sources = EXCLUDED.punch_sources`,
+        id,
+        employeeId,
+        dateISO,
+        ts,
+        sourcesJson,
+    );
+}
+
+/** Deletes an employee's whole day from Postgres. The kiosk reaps the local
+ * mirror row on its next sync (see run_sync). */
+export async function deletePunchDay(employeeId: string, dateISO: string): Promise<void> {
+    await prisma.$executeRaw`
+        DELETE FROM time_entries
+        WHERE employee_id = ${employeeId} AND work_date = ${dateISO}::date
+    `;
+}
