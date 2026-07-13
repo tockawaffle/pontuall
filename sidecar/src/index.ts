@@ -6,7 +6,7 @@ import { prisma } from "./db";
 import { sendDataExportEmail, sendSmtpTestEmail, type DataExport, type SmtpConfig } from "./mail";
 import { ensureAuthSchema } from "./migrate";
 import { startMissedPunchScheduler, updateWorkHoursSchedule, type WorkHoursSchedule } from "./missed-punch";
-import { loadPortalExport, portalPage, resetPage } from "./portal";
+import { loadPortalExport, portalPage, resetPage, setReportVisibility } from "./portal";
 import { issuePunchOtp, verifyPunchOtp } from "./punch-otp";
 import { configuredPublicOrigin, configuredTrustedOrigins, publicOrigins, runtime } from "./runtime";
 
@@ -30,6 +30,54 @@ function keyMatches(provided: string): boolean {
 runtime.publicOrigin = configuredPublicOrigin() ?? publicOrigins(port)[0] ?? null;
 runtime.trustedOrigins = configuredTrustedOrigins();
 
+type AdminGate =
+	| { ok: true; user: { id: string; name: string | null; email: string | null } }
+	| { ok: false; response: Response };
+
+/** Resolves the session and checks the given Better Auth permissions. */
+async function requireAdmin(
+	request: Request,
+	permissions: Record<string, string[]>,
+): Promise<AdminGate> {
+	let session = null;
+	try {
+		session = await auth.api.getSession({ headers: request.headers });
+	} catch {
+		// treated as unauthenticated
+	}
+	if (!session?.user) {
+		return { ok: false, response: Response.json({ error: "não autenticado" }, { status: 401 }) };
+	}
+	let allowed = false;
+	try {
+		const result = await auth.api.userHasPermission({
+			body: { userId: session.user.id, permissions },
+		});
+		allowed = Boolean(result?.success);
+	} catch {
+		allowed = false;
+	}
+	if (!allowed) {
+		return { ok: false, response: Response.json({ error: "acesso negado" }, { status: 403 }) };
+	}
+	return {
+		ok: true,
+		user: {
+			id: session.user.id,
+			name: session.user.name ?? null,
+			email: session.user.email ?? null,
+		},
+	};
+}
+
+/** Better Auth role → PontuAll access level, for cosmetic UI gating. */
+function accessLevel(role?: string | null): "employee" | "supervisor" | "administrator" {
+	const v = (role ?? "employee").toLowerCase();
+	if (v.includes("admin")) return "administrator";
+	if (v.includes("supervisor")) return "supervisor";
+	return "employee";
+}
+
 const server = Bun.serve({
 	hostname: "0.0.0.0",
 	port,
@@ -45,13 +93,14 @@ const server = Bun.serve({
 		const isAuthApi = url.pathname.startsWith("/api/auth");
 		const isHealth = url.pathname === "/health";
 		const isPortalData = url.pathname === "/portal/data" && request.method === "GET";
+		const isPortalAdmin = url.pathname.startsWith("/portal/admin/");
 
 		// Fail closed: every /internal route requires a valid shared key. An
 		// empty key (misconfiguration) rejects rather than opening these
 		// privilege-escalation routes. /api/auth is exempt (Better Auth guards
-		// it via session + role); /health carries no secrets; /portal/data
-		// requires a session.
-		if (!isAuthApi && !isHealth && !isPortalData) {
+		// it via session + role); /health carries no secrets; /portal/data and
+		// /portal/admin/* require a session (checked per-route by requireAdmin).
+		if (!isAuthApi && !isHealth && !isPortalData && !isPortalAdmin) {
 			if (!sharedKey || !keyMatches(request.headers.get("x-pontuall-key") ?? "")) {
 				return new Response("Forbidden", { status: 403 });
 			}
@@ -80,6 +129,7 @@ const server = Bun.serve({
 					{ status: 404 },
 				);
 			}
+			const withRole = { ...(data as object), accessLevel: accessLevel(session.user.role) };
 			void logAudit({
 				actorId: session.user.id,
 				actorName: session.user.name ?? null,
@@ -90,7 +140,29 @@ const server = Bun.serve({
 				ipAddress: server.requestIP(request)?.address ?? null,
 				userAgent: request.headers.get("user-agent"),
 			});
-			return Response.json(data);
+			return Response.json(withRole);
+		}
+
+		if (url.pathname === "/portal/admin/report-visibility" && request.method === "POST") {
+			const gate = await requireAdmin(request, { punch: ["delete-others"] });
+			if (!gate.ok) return gate.response;
+			const body = (await request.json()) as { hidden?: boolean };
+			if (typeof body.hidden !== "boolean") {
+				return Response.json({ error: "hidden (boolean) obrigatório" }, { status: 400 });
+			}
+			const affected = await setReportVisibility(gate.user.id, body.hidden);
+			void logAudit({
+				actorId: gate.user.id,
+				actorName: gate.user.name,
+				actorType: "admin",
+				action: "portal/report-visibility",
+				resource: maskEmail(gate.user.email ?? ""),
+				success: affected > 0,
+				ipAddress: server.requestIP(request)?.address ?? null,
+				userAgent: request.headers.get("user-agent"),
+				payload: { hidden: body.hidden },
+			});
+			return Response.json({ ok: true, hidden: body.hidden });
 		}
 
 		if (url.pathname === "/internal/promote-auth-admin" && request.method === "POST") {

@@ -21,6 +21,7 @@ type EmployeeRow = {
     role: string;
     lunch_time: string | null;
     created_at: Date;
+    exclude_from_report: boolean;
 };
 
 type TimeEntryRow = {
@@ -51,7 +52,7 @@ function totalHours(e: TimeEntryRow): string | null {
  */
 export async function loadPortalExport(authUserId: string): Promise<object | null> {
     const employees = await prisma.$queryRaw<EmployeeRow[]>`
-        SELECT id, name, email, phone, role, lunch_time, created_at
+        SELECT id, name, email, phone, role, lunch_time, created_at, exclude_from_report
         FROM employees WHERE auth_user_id = ${authUserId}
     `;
     const employee = employees[0];
@@ -71,6 +72,7 @@ export async function loadPortalExport(authUserId: string): Promise<object | nul
             role: employee.role,
             lunchTime: employee.lunch_time,
             createdAt: employee.created_at.toISOString(),
+            excludeFromReport: employee.exclude_from_report,
         },
         timeEntries: entries.map((e) => ({
             date: e.work_date.toISOString().slice(0, 10),
@@ -82,4 +84,16 @@ export async function loadPortalExport(authUserId: string): Promise<object | nul
         })),
         generatedAt: new Date().toISOString(),
     };
+}
+
+/** Sets the caller's own report-visibility flag. Returns rows affected. */
+export async function setReportVisibility(
+    authUserId: string,
+    hidden: boolean,
+): Promise<number> {
+    const affected = await prisma.$executeRaw`
+        UPDATE employees SET exclude_from_report = ${hidden}, updated_at = now()
+        WHERE auth_user_id = ${authUserId}
+    `;
+    return affected;
 }
