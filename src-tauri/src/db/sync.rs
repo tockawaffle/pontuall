@@ -95,6 +95,14 @@ pub(crate) async fn run_sync(app: &AppHandle) -> Result<(), DbError> {
 
     pull_master_data(app).await?;
 
+    // The outbox is now flushed, so any local time entry missing centrally was
+    // deleted elsewhere (e.g. the portal). Remove those stale mirror rows.
+    if let Some(pg) = state.pg_if_online().await {
+        if let Err(e) = time_entries::reap_deleted(&pg, &state.lite).await {
+            eprintln!("[sync] reap failed: {e}");
+        }
+    }
+
     let _ = app.emit("sync_event", "sync_finished");
     let _ = app.emit("sync:users", "updated");
     Ok(())
