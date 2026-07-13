@@ -19,9 +19,11 @@ type PortalData = {
         role: string;
         lunchTime: string | null;
         createdAt: string;
+        excludeFromReport: boolean;
     };
     timeEntries: PortalTimeEntry[];
     generatedAt: string;
+    accessLevel: "employee" | "supervisor" | "administrator";
 };
 
 const loginForm = el<HTMLFormElement>("login");
@@ -125,6 +127,15 @@ function render(data: PortalData): void {
     loginForm.hidden = true;
     el<HTMLParagraphElement>("forgot-link").hidden = true;
     portal.hidden = false;
+
+    const adminBlock = el<HTMLDivElement>("admin-report-visibility");
+    const reportChk = el<HTMLInputElement>("report-visibility");
+    if (data.accessLevel === "administrator") {
+        adminBlock.hidden = false;
+        reportChk.checked = data.employee.excludeFromReport;
+    } else {
+        adminBlock.hidden = true;
+    }
 }
 
 /** Loads the caller's data; false means there is no active session. */
@@ -277,6 +288,28 @@ el<HTMLFormElement>("change-password").addEventListener("submit", async (e) => {
 
 el<HTMLSelectElement>("filter-month").addEventListener("change", renderEntries);
 el<HTMLSelectElement>("filter-year").addEventListener("change", renderEntries);
+
+el<HTMLInputElement>("report-visibility").addEventListener("change", async (e) => {
+    const checkbox = e.currentTarget as HTMLInputElement;
+    clearMsg();
+    try {
+        const res = await fetch("/portal/admin/report-visibility", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ hidden: checkbox.checked }),
+        });
+        if (!res.ok) {
+            checkbox.checked = !checkbox.checked;
+            show("error", "Não foi possível salvar a preferência.");
+            return;
+        }
+        if (exportData) exportData.employee.excludeFromReport = checkbox.checked;
+        show("success", "Preferência salva.");
+    } catch {
+        checkbox.checked = !checkbox.checked;
+        show("error", "Falha de conexão — tente novamente.");
+    }
+});
 
 // Restore an existing session on load.
 void fetchData().catch(() => undefined);
