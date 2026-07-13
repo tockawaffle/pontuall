@@ -86,6 +86,41 @@ export async function loadPortalExport(authUserId: string): Promise<object | nul
     };
 }
 
+/** All employees, for the admin punch-management picker. */
+export async function loadAdminEmployees(): Promise<
+    { id: string; name: string; role: string }[]
+> {
+    return prisma.$queryRaw<{ id: string; name: string; role: string }[]>`
+        SELECT id, name, role FROM employees ORDER BY name ASC
+    `;
+}
+
+/** One employee's full punch history, same shape as loadPortalExport entries. */
+export async function loadEmployeePunches(employeeId: string): Promise<
+    {
+        date: string;
+        clockIn: string | null;
+        lunchOut: string | null;
+        lunchReturn: string | null;
+        clockOut: string | null;
+        totalHours: string | null;
+    }[]
+> {
+    const entries = await prisma.$queryRaw<TimeEntryRow[]>`
+        SELECT work_date, clock_in, lunch_out, lunch_return, clock_out
+        FROM time_entries WHERE employee_id = ${employeeId}
+        ORDER BY work_date DESC
+    `;
+    return entries.map((e) => ({
+        date: e.work_date.toISOString().slice(0, 10),
+        clockIn: e.clock_in?.toISOString() ?? null,
+        lunchOut: e.lunch_out?.toISOString() ?? null,
+        lunchReturn: e.lunch_return?.toISOString() ?? null,
+        clockOut: e.clock_out?.toISOString() ?? null,
+        totalHours: totalHours(e),
+    }));
+}
+
 /** Sets the caller's own report-visibility flag. Returns rows affected. */
 export async function setReportVisibility(
     authUserId: string,

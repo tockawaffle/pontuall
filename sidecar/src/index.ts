@@ -6,7 +6,7 @@ import { prisma } from "./db";
 import { sendDataExportEmail, sendSmtpTestEmail, type DataExport, type SmtpConfig } from "./mail";
 import { ensureAuthSchema } from "./migrate";
 import { startMissedPunchScheduler, updateWorkHoursSchedule, type WorkHoursSchedule } from "./missed-punch";
-import { loadPortalExport, portalPage, resetPage, setReportVisibility } from "./portal";
+import { loadAdminEmployees, loadEmployeePunches, loadPortalExport, portalPage, resetPage, setReportVisibility } from "./portal";
 import { issuePunchOtp, verifyPunchOtp } from "./punch-otp";
 import { configuredPublicOrigin, configuredTrustedOrigins, publicOrigins, runtime } from "./runtime";
 
@@ -163,6 +163,36 @@ const server = Bun.serve({
 				payload: { hidden: body.hidden },
 			});
 			return Response.json({ ok: true, hidden: body.hidden });
+		}
+
+		if (url.pathname === "/portal/admin/employees" && request.method === "GET") {
+			const gate = await requireAdmin(request, { punch: ["read-others"] });
+			if (!gate.ok) return gate.response;
+			const employees = await loadAdminEmployees();
+			void logAudit({
+				actorId: gate.user.id, actorName: gate.user.name, actorType: "admin",
+				action: "portal/admin-employees-list", success: true,
+				ipAddress: server.requestIP(request)?.address ?? null,
+				userAgent: request.headers.get("user-agent"),
+			});
+			return Response.json({ employees });
+		}
+
+		if (url.pathname === "/portal/admin/punches" && request.method === "GET") {
+			const gate = await requireAdmin(request, { punch: ["read-others"] });
+			if (!gate.ok) return gate.response;
+			const employeeId = url.searchParams.get("employeeId") ?? "";
+			if (!employeeId) {
+				return Response.json({ error: "employeeId obrigatório" }, { status: 400 });
+			}
+			const entries = await loadEmployeePunches(employeeId);
+			void logAudit({
+				actorId: gate.user.id, actorName: gate.user.name, actorType: "admin",
+				action: "portal/admin-punch-read", resource: `employee:${employeeId}`,
+				success: true, ipAddress: server.requestIP(request)?.address ?? null,
+				userAgent: request.headers.get("user-agent"),
+			});
+			return Response.json({ entries });
 		}
 
 		if (url.pathname === "/internal/promote-auth-admin" && request.method === "POST") {
