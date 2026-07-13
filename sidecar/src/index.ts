@@ -230,11 +230,11 @@ const server = Bun.serve({
 			if (!body.employeeId || !okDate) {
 				return Response.json({ error: "parâmetros inválidos" }, { status: 400 });
 			}
-			await deletePunchDay(body.employeeId, body.date!);
+			const deleted = await deletePunchDay(body.employeeId, body.date!);
 			void logAudit({
 				actorId: gate.user.id, actorName: gate.user.name, actorType: "admin",
 				action: "portal/punch-delete", resource: `employee:${body.employeeId}`,
-				success: true, ipAddress: server.requestIP(request)?.address ?? null,
+				success: deleted > 0, ipAddress: server.requestIP(request)?.address ?? null,
 				userAgent: request.headers.get("user-agent"),
 				payload: { date: body.date },
 			});

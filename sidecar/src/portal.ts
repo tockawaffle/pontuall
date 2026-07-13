@@ -151,6 +151,9 @@ export async function setPunchField(
 ): Promise<void> {
     const column = PUNCH_COLUMN[field];
     if (!column) throw new Error("campo inválido");
+    // No-offset string: parsed in the sidecar process's local timezone, which
+    // matches the kiosk's Rust `Local` because both run on the same machine.
+    // A separately-hosted sidecar would need its TZ pinned to the kiosk's.
     const ts = new Date(`${dateISO}T${localTime}:00`);
     if (Number.isNaN(ts.getTime())) throw new Error("hora inválida");
 
@@ -181,10 +184,10 @@ export async function setPunchField(
     );
 }
 
-/** Deletes an employee's whole day from Postgres. The kiosk reaps the local
- * mirror row on its next sync (see run_sync). */
-export async function deletePunchDay(employeeId: string, dateISO: string): Promise<void> {
-    await prisma.$executeRaw`
+/** Deletes an employee's whole day from Postgres, returning rows affected. The
+ * kiosk reaps the local mirror row on its next sync (see run_sync). */
+export async function deletePunchDay(employeeId: string, dateISO: string): Promise<number> {
+    return prisma.$executeRaw`
         DELETE FROM time_entries
         WHERE employee_id = ${employeeId} AND work_date = ${dateISO}::date
     `;
