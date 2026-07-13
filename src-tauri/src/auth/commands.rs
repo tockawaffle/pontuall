@@ -118,6 +118,7 @@ pub(crate) async fn auth_bootstrap_admin(
         terminated_at: None,
         created_at: now,
         updated_at: now,
+        exclude_from_report: false,
     };
     employees::upsert(&db, &employee).await?;
 

@@ -21,6 +21,7 @@ pub(crate) struct Employee {
     pub terminated_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+    pub exclude_from_report: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
@@ -62,6 +63,8 @@ pub(crate) struct UserExternal {
     /// Better Auth role (`employee`, `supervisor`, `administrator`); null without login.
     pub(crate) access_role: Option<String>,
     pub(crate) auth_user_id: Option<String>,
+    #[serde(default)]
+    pub(crate) exclude_from_report: bool,
 }
 
 fn local_time_string(ts: Option<DateTime<Utc>>) -> String {
@@ -124,6 +127,7 @@ impl Employee {
             phone: self.phone.clone(),
             access_role,
             auth_user_id: self.auth_user_id.clone(),
+            exclude_from_report: self.exclude_from_report,
         }
     }
 }

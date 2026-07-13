@@ -1,0 +1,1 @@
+ALTER TABLE employees ADD COLUMN exclude_from_report INTEGER NOT NULL DEFAULT 0;
