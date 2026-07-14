@@ -118,6 +118,7 @@ pub(crate) async fn auth_bootstrap_admin(
         terminated_at: None,
         created_at: now,
         updated_at: now,
+        exclude_from_report: false,
     };
     employees::upsert(&db, &employee).await?;
 
@@ -200,7 +201,8 @@ pub(crate) async fn auth_create_account(
     employee.updated_at = Utc::now();
     employees::upsert(&db, &employee).await?;
 
-    auth.send_password_setup(&email, &smtp, Some(&actor)).await.map_err(|e| {
+    let public_url = crate::misc::advanced::configured_public_url(&db).await;
+    auth.send_password_setup(&email, &smtp, public_url.as_deref(), Some(&actor)).await.map_err(|e| {
         AuthError::Internal(format!(
             "conta criada, mas o e-mail com o link de senha falhou ({e}) — use \"Enviar link de senha\" na aba Logins"
         ))
@@ -218,7 +220,9 @@ pub(crate) async fn auth_admin_send_password_reset(
     let actor = guard::require_auth_admin_current(&app).await?;
     let smtp = smtp_config_required()?;
     let auth = app.state::<AuthState>();
-    auth.send_password_setup(email.trim(), &smtp, Some(&actor))
+    let db = app.state::<crate::db::DbState>();
+    let public_url = crate::misc::advanced::configured_public_url(&db).await;
+    auth.send_password_setup(email.trim(), &smtp, public_url.as_deref(), Some(&actor))
         .await
 }
 

@@ -274,13 +274,19 @@ export default class TauriApi {
         return this.command<{
             port: number;
             publicUrl: string;
+            trustedOrigins: string[];
         }>("get_advanced_config_cmd", {});
     }
 
-    public static async SetAdvancedConfig(port: number, publicUrl: string) {
+    public static async SetAdvancedConfig(
+        port: number,
+        publicUrl: string,
+        trustedOrigins: string[]
+    ) {
         return this.command<boolean>("set_advanced_config_cmd", {
             port,
             publicUrl,
+            trustedOrigins,
         });
     }
 

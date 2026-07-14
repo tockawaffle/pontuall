@@ -114,7 +114,11 @@ export default function AdminPage() {
     const [smtpSaving, setSmtpSaving] = useState(false);
     const [smtpTestTo, setSmtpTestTo] = useState("");
     const [smtpTesting, setSmtpTesting] = useState(false);
-    const [advancedForm, setAdvancedForm] = useState({port: "3435", publicUrl: ""});
+    const [advancedForm, setAdvancedForm] = useState<{
+        port: string;
+        publicUrl: string;
+        trustedOrigins: string[];
+    }>({port: "3435", publicUrl: "", trustedOrigins: []});
     const [advancedSaving, setAdvancedSaving] = useState(false);
 
     const today = getTodayKey();
@@ -162,6 +166,7 @@ export default function AdminPage() {
                 setAdvancedForm({
                     port: String(config.port || 3435),
                     publicUrl: config.publicUrl,
+                    trustedOrigins: config.trustedOrigins ?? [],
                 })
             )
             .catch(() => undefined);
@@ -357,6 +362,7 @@ export default function AdminPage() {
             await TauriApi.SetAdvancedConfig(
                 Number(advancedForm.port) || 3435,
                 advancedForm.publicUrl,
+                advancedForm.trustedOrigins.map((o) => o.trim()).filter((o) => o.length > 0),
             );
             toast.success("Configuração avançada salva", {
                 description: "A porta passa a valer após reiniciar o aplicativo.",
@@ -892,6 +898,56 @@ export default function AdminPage() {
                                     Domínio ou proxy que aponta para esta máquina. Vale
                                     imediatamente para novos links.
                                 </p>
+                            </div>
+                            <div className="space-y-2 sm:col-span-2">
+                                <Label>Domínios externos confiáveis</Label>
+                                <p className="text-xs text-muted-foreground">
+                                    Domínios proxy (cloudflared, playit, VPN) pelos quais o
+                                    portal é acessado. Cada um precisa começar com http:// ou
+                                    https://.
+                                </p>
+                                {advancedForm.trustedOrigins.map((origin, i) => (
+                                    <div key={i} className="flex gap-2">
+                                        <Input
+                                            type="url"
+                                            placeholder="https://ponto.trycloudflare.com"
+                                            value={origin}
+                                            onChange={(e) =>
+                                                setAdvancedForm((p) => {
+                                                    const next = [...p.trustedOrigins];
+                                                    next[i] = e.target.value;
+                                                    return {...p, trustedOrigins: next};
+                                                })
+                                            }
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="secondary"
+                                            onClick={() =>
+                                                setAdvancedForm((p) => ({
+                                                    ...p,
+                                                    trustedOrigins: p.trustedOrigins.filter(
+                                                        (_, j) => j !== i
+                                                    ),
+                                                }))
+                                            }
+                                        >
+                                            Remover
+                                        </Button>
+                                    </div>
+                                ))}
+                                <Button
+                                    type="button"
+                                    variant="secondary"
+                                    onClick={() =>
+                                        setAdvancedForm((p) => ({
+                                            ...p,
+                                            trustedOrigins: [...p.trustedOrigins, ""],
+                                        }))
+                                    }
+                                >
+                                    Adicionar domínio
+                                </Button>
                             </div>
                             <div className="sm:col-span-2">
                                 <Button

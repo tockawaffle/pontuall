@@ -70,6 +70,22 @@
             <button id="download" type="button">Baixar meus dados (JSON)</button>
             <button id="signout" type="button" class="secondary">Sair</button>
         </div>
+        <div id="admin-panel" hidden>
+            <h2>Gerenciar pontos (administrador)</h2>
+            <div class="filters">
+                <select id="admin-employee"><option value="">Selecione um funcionário</option></select>
+            </div>
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr><th>Data</th><th>Entrada</th><th>Almoço — saída</th>
+                            <th>Almoço — retorno</th><th>Saída</th><th>Ações</th></tr>
+                    </thead>
+                    <tbody id="admin-entries"></tbody>
+                </table>
+            </div>
+            <p id="admin-no-entries" class="no-entries" hidden>Nenhum registro para este funcionário.</p>
+        </div>
         <details>
             <summary>Alterar senha</summary>
             <form id="change-password">
@@ -83,6 +99,15 @@
                 </div>
             </form>
         </details>
+        <div id="admin-report-visibility" hidden>
+            <details>
+                <summary>Opções de administrador</summary>
+                <label style="display:flex;gap:8px;align-items:center;margin-top:8px">
+                    <input id="report-visibility" type="checkbox">
+                    Não aparecer nos relatórios
+                </label>
+            </details>
+        </div>
         <p class="lgpd">Estes são os dados que a empresa mantém sobre você neste sistema.
         Para corrigir informações, pedir eliminação ou exercer outros direitos da LGPD
         (Lei 13.709/2018, Art. 18), fale com o RH ou com o encarregado de dados da empresa.</p>

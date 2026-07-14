@@ -6,14 +6,15 @@ use crate::db::repo::outbox;
 use crate::db::{lite_sql, DbState};
 
 const UPSERT: &str = "\
-INSERT INTO employees (id, name, email, phone, role, lunch_time, status, auth_user_id, terminated_at, created_at, updated_at) \
-VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) \
+INSERT INTO employees (id, name, email, phone, role, lunch_time, status, auth_user_id, terminated_at, created_at, updated_at, exclude_from_report) \
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
 ON CONFLICT (id) DO UPDATE SET \
   name = excluded.name, email = excluded.email, phone = excluded.phone, \
   role = excluded.role, lunch_time = excluded.lunch_time, status = excluded.status, \
   auth_user_id = excluded.auth_user_id, \
   terminated_at = excluded.terminated_at, \
-  updated_at = excluded.updated_at \
+  updated_at = excluded.updated_at, \
+  exclude_from_report = excluded.exclude_from_report \
 WHERE employees.updated_at <= excluded.updated_at";
 
 fn bind_upsert<'q, DB>(
@@ -26,6 +27,7 @@ where
     Option<String>: sqlx::Type<DB> + sqlx::Encode<'q, DB>,
     chrono::DateTime<chrono::Utc>: sqlx::Type<DB> + sqlx::Encode<'q, DB>,
     Option<chrono::DateTime<chrono::Utc>>: sqlx::Type<DB> + sqlx::Encode<'q, DB>,
+    bool: sqlx::Type<DB> + sqlx::Encode<'q, DB>,
 {
     query
         .bind(&e.id)
@@ -39,6 +41,7 @@ where
         .bind(e.terminated_at)
         .bind(e.created_at)
         .bind(e.updated_at)
+        .bind(e.exclude_from_report)
 }
 
 pub(crate) async fn upsert_local(lite: &SqlitePool, e: &Employee) -> Result<(), DbError> {

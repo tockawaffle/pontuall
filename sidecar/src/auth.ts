@@ -28,6 +28,7 @@ export const auth = betterAuth({
         `http://127.0.0.1:${port}`,
         ...publicOrigins(port),
         ...(runtime.publicOrigin ? [runtime.publicOrigin] : []),
+        ...runtime.trustedOrigins,
     ],
     emailAndPassword: {
         enabled: true,

@@ -19,9 +19,11 @@ type PortalData = {
         role: string;
         lunchTime: string | null;
         createdAt: string;
+        excludeFromReport: boolean;
     };
     timeEntries: PortalTimeEntry[];
     generatedAt: string;
+    accessLevel: "employee" | "supervisor" | "administrator";
 };
 
 const loginForm = el<HTMLFormElement>("login");
@@ -125,6 +127,18 @@ function render(data: PortalData): void {
     loginForm.hidden = true;
     el<HTMLParagraphElement>("forgot-link").hidden = true;
     portal.hidden = false;
+
+    const adminBlock = el<HTMLDivElement>("admin-report-visibility");
+    const reportChk = el<HTMLInputElement>("report-visibility");
+    if (data.accessLevel === "administrator") {
+        adminBlock.hidden = false;
+        reportChk.checked = data.employee.excludeFromReport;
+        el<HTMLDivElement>("admin-panel").hidden = false;
+        void loadAdminEmployees();
+    } else {
+        adminBlock.hidden = true;
+        el<HTMLDivElement>("admin-panel").hidden = true;
+    }
 }
 
 /** Loads the caller's data; false means there is no active session. */
@@ -277,6 +291,150 @@ el<HTMLFormElement>("change-password").addEventListener("submit", async (e) => {
 
 el<HTMLSelectElement>("filter-month").addEventListener("change", renderEntries);
 el<HTMLSelectElement>("filter-year").addEventListener("change", renderEntries);
+
+el<HTMLInputElement>("report-visibility").addEventListener("change", async (e) => {
+    const checkbox = e.currentTarget as HTMLInputElement;
+    clearMsg();
+    try {
+        const res = await fetch("/portal/admin/report-visibility", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ hidden: checkbox.checked }),
+        });
+        if (!res.ok) {
+            checkbox.checked = !checkbox.checked;
+            show("error", "Não foi possível salvar a preferência.");
+            return;
+        }
+        if (exportData) exportData.employee.excludeFromReport = checkbox.checked;
+        show("success", "Preferência salva.");
+    } catch {
+        checkbox.checked = !checkbox.checked;
+        show("error", "Falha de conexão — tente novamente.");
+    }
+});
+
+// --- Admin punch management ---
+
+type AdminEntry = {
+    date: string;
+    clockIn: string | null;
+    lunchOut: string | null;
+    lunchReturn: string | null;
+    clockOut: string | null;
+    totalHours: string | null;
+};
+
+const FIELD_OF_INDEX: ("clockIn" | "lunchOut" | "lunchReturn" | "clockOut")[] = [
+    "clockIn", "lunchOut", "lunchReturn", "clockOut",
+];
+
+async function loadAdminEmployees(): Promise<void> {
+    const res = await fetch("/portal/admin/employees");
+    if (!res.ok) return;
+    const { employees } = (await res.json()) as { employees: { id: string; name: string }[] };
+    const sel = el<HTMLSelectElement>("admin-employee");
+    sel.innerHTML = '<option value="">Selecione um funcionário</option>';
+    for (const emp of employees) {
+        const opt = document.createElement("option");
+        opt.value = emp.id;
+        opt.textContent = emp.name;
+        sel.append(opt);
+    }
+}
+
+function timeInput(value: string | null): string {
+    // ISO -> HH:MM for the <input type="time">.
+    if (!value) return "";
+    const d = new Date(value);
+    return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+async function loadAdminPunches(employeeId: string): Promise<void> {
+    const tbody = el<HTMLTableSectionElement>("admin-entries");
+    tbody.innerHTML = "";
+    if (!employeeId) {
+        el<HTMLParagraphElement>("admin-no-entries").hidden = true;
+        return;
+    }
+    const res = await fetch(`/portal/admin/punches?employeeId=${encodeURIComponent(employeeId)}`);
+    if (!res.ok) {
+        show("error", "Não foi possível carregar os pontos.");
+        return;
+    }
+    const { entries } = (await res.json()) as { entries: AdminEntry[] };
+    el<HTMLParagraphElement>("admin-no-entries").hidden = entries.length > 0;
+    for (const entry of entries) {
+        const tr = document.createElement("tr");
+
+        const dateTd = document.createElement("td");
+        dateTd.textContent = fmtDate(entry.date);
+        tr.append(dateTd);
+
+        const values = [entry.clockIn, entry.lunchOut, entry.lunchReturn, entry.clockOut];
+        values.forEach((value, i) => {
+            const td = document.createElement("td");
+            const input = document.createElement("input");
+            input.type = "time";
+            input.value = timeInput(value);
+            input.addEventListener("change", () => {
+                if (!input.value) return;
+                void savePunch(employeeId, entry.date, FIELD_OF_INDEX[i], input.value);
+            });
+            td.append(input);
+            tr.append(td);
+        });
+
+        const actionTd = document.createElement("td");
+        const del = document.createElement("button");
+        del.type = "button";
+        del.className = "secondary";
+        del.textContent = "Excluir dia";
+        del.addEventListener("click", () => void deletePunch(employeeId, entry.date));
+        actionTd.append(del);
+        tr.append(actionTd);
+
+        tbody.append(tr);
+    }
+}
+
+async function savePunch(
+    employeeId: string,
+    dateISO: string,
+    field: string,
+    value: string,
+): Promise<void> {
+    clearMsg();
+    const res = await fetch("/portal/admin/punch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId, date: dateISO, field, value }),
+    });
+    if (res.ok) {
+        show("success", "Ponto atualizado.");
+    } else {
+        show("error", "Não foi possível salvar o ponto.");
+    }
+}
+
+async function deletePunch(employeeId: string, dateISO: string): Promise<void> {
+    clearMsg();
+    const res = await fetch("/portal/admin/punch/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ employeeId, date: dateISO }),
+    });
+    if (res.ok) {
+        show("success", "Dia excluído.");
+        void loadAdminPunches(employeeId);
+    } else {
+        show("error", "Não foi possível excluir o dia.");
+    }
+}
+
+el<HTMLSelectElement>("admin-employee").addEventListener("change", (e) => {
+    void loadAdminPunches((e.currentTarget as HTMLSelectElement).value);
+});
 
 // Restore an existing session on load.
 void fetchData().catch(() => undefined);

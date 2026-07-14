@@ -169,6 +169,7 @@ mod tests {
             terminated_at: terminated_days_ago.map(|d| now - ChronoDuration::days(d)),
             created_at: now,
             updated_at: now,
+            exclude_from_report: false,
         }
     }
 

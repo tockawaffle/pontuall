@@ -294,11 +294,12 @@ impl AuthState {
         &self,
         email: &str,
         smtp: &crate::misc::smtp::SmtpConfigDto,
+        public_url: Option<&str>,
         actor: Option<&UserLoggedDto>,
     ) -> Result<(), AuthError> {
         let url = format!("{}/internal/password-setup/send", self.base_url().await?);
         let mut body = json!({ "email": email, "smtp": smtp });
-        if let Some(public_url) = crate::misc::advanced::configured_public_url() {
+        if let Some(public_url) = public_url {
             body["publicBaseUrl"] = json!(public_url);
         }
         if let Some(actor) = actor {
@@ -620,6 +621,23 @@ impl AuthState {
         let url = format!("{}/internal/smtp/push", self.base_url().await?);
         self.request(reqwest::Method::POST, url, None)
             .json(&json!({ "smtp": smtp }))
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
+    /// Pushes the public origin (e-mail base) and the extra trusted origins to
+    /// the sidecar so Better Auth's origin check accepts proxied domains
+    /// without a restart.
+    pub(crate) async fn push_public_origins(
+        &self,
+        public_origin: Option<&str>,
+        trusted: &[String],
+    ) -> Result<(), AuthError> {
+        let url = format!("{}/internal/public-origins/push", self.base_url().await?);
+        self.request(reqwest::Method::POST, url, None)
+            .json(&json!({ "publicOrigin": public_origin, "trustedOrigins": trusted }))
             .send()
             .await?
             .error_for_status()?;

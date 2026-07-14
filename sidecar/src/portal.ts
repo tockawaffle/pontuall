@@ -21,6 +21,7 @@ type EmployeeRow = {
     role: string;
     lunch_time: string | null;
     created_at: Date;
+    exclude_from_report: boolean;
 };
 
 type TimeEntryRow = {
@@ -51,7 +52,7 @@ function totalHours(e: TimeEntryRow): string | null {
  */
 export async function loadPortalExport(authUserId: string): Promise<object | null> {
     const employees = await prisma.$queryRaw<EmployeeRow[]>`
-        SELECT id, name, email, phone, role, lunch_time, created_at
+        SELECT id, name, email, phone, role, lunch_time, created_at, exclude_from_report
         FROM employees WHERE auth_user_id = ${authUserId}
     `;
     const employee = employees[0];
@@ -71,6 +72,7 @@ export async function loadPortalExport(authUserId: string): Promise<object | nul
             role: employee.role,
             lunchTime: employee.lunch_time,
             createdAt: employee.created_at.toISOString(),
+            excludeFromReport: employee.exclude_from_report,
         },
         timeEntries: entries.map((e) => ({
             date: e.work_date.toISOString().slice(0, 10),
@@ -82,4 +84,111 @@ export async function loadPortalExport(authUserId: string): Promise<object | nul
         })),
         generatedAt: new Date().toISOString(),
     };
+}
+
+/** All employees, for the admin punch-management picker. */
+export async function loadAdminEmployees(): Promise<
+    { id: string; name: string; role: string }[]
+> {
+    return prisma.$queryRaw<{ id: string; name: string; role: string }[]>`
+        SELECT id, name, role FROM employees ORDER BY name ASC
+    `;
+}
+
+/** One employee's full punch history, same shape as loadPortalExport entries. */
+export async function loadEmployeePunches(employeeId: string): Promise<
+    {
+        date: string;
+        clockIn: string | null;
+        lunchOut: string | null;
+        lunchReturn: string | null;
+        clockOut: string | null;
+        totalHours: string | null;
+    }[]
+> {
+    const entries = await prisma.$queryRaw<TimeEntryRow[]>`
+        SELECT work_date, clock_in, lunch_out, lunch_return, clock_out
+        FROM time_entries WHERE employee_id = ${employeeId}
+        ORDER BY work_date DESC
+    `;
+    return entries.map((e) => ({
+        date: e.work_date.toISOString().slice(0, 10),
+        clockIn: e.clock_in?.toISOString() ?? null,
+        lunchOut: e.lunch_out?.toISOString() ?? null,
+        lunchReturn: e.lunch_return?.toISOString() ?? null,
+        clockOut: e.clock_out?.toISOString() ?? null,
+        totalHours: totalHours(e),
+    }));
+}
+
+/** Sets the caller's own report-visibility flag. Returns rows affected. */
+export async function setReportVisibility(
+    authUserId: string,
+    hidden: boolean,
+): Promise<number> {
+    const affected = await prisma.$executeRaw`
+        UPDATE employees SET exclude_from_report = ${hidden}, updated_at = now()
+        WHERE auth_user_id = ${authUserId}
+    `;
+    return affected;
+}
+
+const PUNCH_COLUMN: Record<string, string> = {
+    clockIn: "clock_in",
+    lunchOut: "lunch_out",
+    lunchReturn: "lunch_return",
+    clockOut: "clock_out",
+};
+
+/** Sets one punch field (local HH:MM on the given ISO date). Merges
+ * punch_sources[column] = "portal_admin". Postgres is authoritative; the kiosk
+ * pulls this row LWW by updated_at. */
+export async function setPunchField(
+    employeeId: string,
+    dateISO: string,
+    field: string,
+    localTime: string,
+): Promise<void> {
+    const column = PUNCH_COLUMN[field];
+    if (!column) throw new Error("campo inválido");
+    // No-offset string: parsed in the sidecar process's local timezone, which
+    // matches the kiosk's Rust `Local` because both run on the same machine.
+    // A separately-hosted sidecar would need its TZ pinned to the kiosk's.
+    const ts = new Date(`${dateISO}T${localTime}:00`);
+    if (Number.isNaN(ts.getTime())) throw new Error("hora inválida");
+
+    // punch_sources is TEXT — merge in JS.
+    const existing = await prisma.$queryRaw<{ punch_sources: string | null }[]>`
+        SELECT punch_sources FROM time_entries
+        WHERE employee_id = ${employeeId} AND work_date = ${dateISO}::date
+    `;
+    const sources: Record<string, string> = existing[0]?.punch_sources
+        ? (JSON.parse(existing[0].punch_sources) as Record<string, string>)
+        : {};
+    sources[column] = "portal_admin";
+    const sourcesJson = JSON.stringify(sources);
+
+    const id = crypto.randomUUID();
+    await prisma.$executeRawUnsafe(
+        `INSERT INTO time_entries (id, employee_id, work_date, ${column}, updated_at, punch_sources)
+         VALUES ($1, $2, $3::date, $4, now(), $5)
+         ON CONFLICT (employee_id, work_date) DO UPDATE SET
+           ${column} = EXCLUDED.${column},
+           updated_at = EXCLUDED.updated_at,
+           punch_sources = EXCLUDED.punch_sources`,
+        id,
+        employeeId,
+        dateISO,
+        ts,
+        sourcesJson,
+    );
+}
+
+/** Deletes an employee's whole day from Postgres, returning rows affected. The
+ * kiosk reaps the local mirror row on its next sync (see run_sync). */
+export async function deletePunchDay(employeeId: string, dateISO: string): Promise<number> {
+    return prisma.$executeRaw`
+        DELETE FROM time_entries
+        WHERE employee_id = ${employeeId} AND work_date = ${dateISO}::date
+    `;
 }

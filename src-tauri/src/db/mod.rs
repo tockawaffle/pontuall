@@ -168,6 +168,7 @@ mod tests {
             terminated_at: None,
             created_at: now,
             updated_at: now,
+            exclude_from_report: false,
         }
     }
 
@@ -180,6 +181,14 @@ mod tests {
         let listed = employees::list_local(&db.lite).await.unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].name, "Alice");
+
+        // exclude_from_report defaults false and round-trips.
+        assert!(!listed[0].exclude_from_report);
+        let mut hidden = employee("emp2", "Bob");
+        hidden.exclude_from_report = true;
+        employees::upsert(&db, &hidden).await.unwrap();
+        let bob = employees::find_local(&db.lite, "emp2").await.unwrap().unwrap();
+        assert!(bob.exclude_from_report);
 
         let date = NaiveDate::from_ymd_opt(2026, 7, 3).unwrap();
         let ts = Utc::now();
@@ -198,8 +207,8 @@ mod tests {
         assert!(row.clock_in.is_some());
         assert!(row.clock_out.is_some());
 
-        // 1 employee + 2 punch snapshots queued.
-        assert_eq!(outbox::pending(&db.lite).await.unwrap().len(), 3);
+        // 2 employees + 2 punch snapshots queued.
+        assert_eq!(outbox::pending(&db.lite).await.unwrap().len(), 4);
 
         // Legacy wire shape used by the frontend.
         let user = listed[0].to_user_external(std::slice::from_ref(&row), None);

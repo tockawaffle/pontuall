@@ -249,3 +249,78 @@ pub(crate) async fn pull_from_pg(pg: &PgPool, lite: &SqlitePool) -> Result<usize
     }
     Ok(rows.len())
 }
+
+/// Deletes local rows whose (employee_id, work_date) is not in `present`.
+/// Safe to call only after the outbox is flushed (no local-only pending rows).
+pub(crate) async fn reap_local_absent(
+    lite: &SqlitePool,
+    present: &std::collections::HashSet<(String, NaiveDate)>,
+) -> Result<usize, DbError> {
+    let local = list_local(lite).await?;
+    let mut removed = 0usize;
+    for e in local {
+        if !present.contains(&(e.employee_id.clone(), e.work_date)) {
+            sqlx::query("DELETE FROM time_entries WHERE id = ?1")
+                .bind(&e.id)
+                .execute(lite)
+                .await?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
+/// Removes local time entries that no longer exist in Postgres (e.g. deleted
+/// from the portal). Postgres is authoritative for the row set.
+pub(crate) async fn reap_deleted(pg: &PgPool, lite: &SqlitePool) -> Result<usize, DbError> {
+    let rows: Vec<(String, NaiveDate)> =
+        sqlx::query_as("SELECT employee_id, work_date FROM time_entries")
+            .fetch_all(pg)
+            .await?;
+    let present: std::collections::HashSet<(String, NaiveDate)> = rows.into_iter().collect();
+    reap_local_absent(lite, &present).await
+}
+
+#[cfg(test)]
+mod reap_tests {
+    use super::*;
+    use crate::db::DbState;
+    use chrono::{NaiveDate, Utc};
+    use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
+    use std::collections::HashSet;
+
+    async fn mem() -> DbState {
+        let opts = SqliteConnectOptions::new().filename(":memory:").foreign_keys(true);
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await.unwrap();
+        sqlx::migrate!("./migrations/sqlite").run(&pool).await.unwrap();
+        DbState::new(pool)
+    }
+
+    #[tokio::test]
+    async fn reaps_only_rows_absent_centrally() {
+        let db = mem().await;
+        // Need a parent employee row for the FK.
+        crate::db::repo::employees::upsert_local(
+            &db.lite,
+            &crate::db::models::Employee {
+                id: "e1".into(), name: "E".into(), email: None, phone: None,
+                role: "r".into(), lunch_time: None, status: "active".into(),
+                auth_user_id: None, terminated_at: None,
+                created_at: Utc::now(), updated_at: Utc::now(), exclude_from_report: false,
+            },
+        ).await.unwrap();
+
+        let keep = NaiveDate::from_ymd_opt(2026, 7, 3).unwrap();
+        let gone = NaiveDate::from_ymd_opt(2026, 7, 4).unwrap();
+        set_field(&db, "e1", keep, UpdateKey::ClockIn, Utc::now(), None).await.unwrap();
+        set_field(&db, "e1", gone, UpdateKey::ClockIn, Utc::now(), None).await.unwrap();
+
+        let mut present = HashSet::new();
+        present.insert(("e1".to_string(), keep));
+
+        let removed = reap_local_absent(&db.lite, &present).await.unwrap();
+        assert_eq!(removed, 1);
+        assert!(find_local(&db.lite, "e1", keep).await.unwrap().is_some());
+        assert!(find_local(&db.lite, "e1", gone).await.unwrap().is_none());
+    }
+}

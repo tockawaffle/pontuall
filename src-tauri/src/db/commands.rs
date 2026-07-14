@@ -83,6 +83,7 @@ pub(crate) async fn insert_new_user(
         terminated_at: None,
         created_at: now,
         updated_at: now,
+        exclude_from_report: false,
     };
 
     employees::upsert(&state, &employee).await?;

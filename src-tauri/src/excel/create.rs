@@ -2,13 +2,22 @@ use std::collections::HashMap;
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveTime, Weekday};
 use rust_xlsxwriter::*;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_dialog::DialogExt;
 
 use crate::auth::guard;
 use crate::db::models::{HourData, UserExternal};
 use crate::auth::permissions::PermissionAction;
 use crate::excel::error::ExcelError;
+
+/// IDs of employees flagged to stay out of the report.
+fn excluded_ids(employees: &[crate::db::models::Employee]) -> std::collections::HashSet<String> {
+    employees
+        .iter()
+        .filter(|e| e.exclude_from_report)
+        .map(|e| e.id.clone())
+        .collect()
+}
 
 fn parse_date(value: &str) -> Result<NaiveDate, ExcelError> {
     NaiveDate::parse_from_str(value, "%d/%m/%Y")
@@ -48,6 +57,14 @@ pub(crate) async fn create_excel_relatory(
     users: HashMap<String, UserExternal>,
 ) -> Result<bool, ExcelError> {
     guard::require_current(&app, PermissionAction::CreateReports).await?;
+
+    let excluded = {
+        let state = app.state::<crate::db::DbState>();
+        let all = crate::db::repo::employees::list_local(&state.lite)
+            .await
+            .unwrap_or_default();
+        excluded_ids(&all)
+    };
 
     // Let the user choose where to save instead of a hardcoded path.
     let destination = app
@@ -108,6 +125,9 @@ pub(crate) async fn create_excel_relatory(
     // Collect data rows within the date range
     let mut data_rows: Vec<(String, String, HourData)> = Vec::new();
     for (name, user) in users.iter() {
+        if excluded.contains(&user.id) {
+            continue;
+        }
         for (date_str, hour_data) in user.hour_data.clone().unwrap_or_default() {
             let date = parse_date(&date_str)?;
             if date >= range_start && date <= range_end {
@@ -139,6 +159,9 @@ pub(crate) async fn create_excel_relatory(
     let mut row = 1;
     let mut last_user = String::new();
     for (name, users) in users.iter() {
+        if excluded.contains(&users.id) {
+            continue;
+        }
         if !last_user.is_empty() && last_user != *name {
             row += 1; // Increment row for the blank row
         }
@@ -294,33 +317,27 @@ fn generate_dates_range(start_date: NaiveDate, end_date: NaiveDate) -> Vec<Naive
     dates
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::cache::get::get_cache;
-//     use crate::cache::set::get_users_and_cache;
-//     use crate::database::connect::create_db_connection;
-//     use crate::excel::create::create_excel_relatory;
-//
-//     /// Tests the `create_excel_relatory` function.
-//     #[tokio::test]
-//     async fn test_create_excel_relatory() {
-//         let db = create_db_connection()
-//             .await
-//             ?;
-//         get_users_and_cache(db).await;
-//         let users = get_cache();
-//
-//         let users = get_cache();
-//         let create = create_excel_relatory(
-//             "01/08/2024".to_string(),
-//             "31/08/2024".to_string(),
-//             "08:00".to_string(),
-//             "18:00".to_string(),
-//             "10".to_string(),
-//             users,
-//         )
-//             ?;
-//
-//         assert_eq!(create, true);
-//     }
-// }
+#[cfg(test)]
+mod exclude_tests {
+    use super::excluded_ids;
+    use crate::db::models::Employee;
+    use chrono::Utc;
+
+    fn emp(id: &str, hidden: bool) -> Employee {
+        let now = Utc::now();
+        Employee {
+            id: id.into(), name: id.into(), email: None, phone: None,
+            role: "r".into(), lunch_time: None, status: "active".into(),
+            auth_user_id: None, terminated_at: None, created_at: now,
+            updated_at: now, exclude_from_report: hidden,
+        }
+    }
+
+    #[test]
+    fn only_flagged_ids_are_excluded() {
+        let set = excluded_ids(&[emp("a", false), emp("b", true)]);
+        assert!(!set.contains("a"));
+        assert!(set.contains("b"));
+        assert_eq!(set.len(), 1);
+    }
+}

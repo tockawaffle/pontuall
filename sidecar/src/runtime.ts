@@ -9,9 +9,11 @@ import type { SmtpConfig } from "./mail";
 export const runtime: {
     smtp: SmtpConfig | null;
     publicOrigin: string | null;
+    trustedOrigins: string[];
 } = {
     smtp: null,
     publicOrigin: null,
+    trustedOrigins: [],
 };
 
 /**
@@ -23,6 +25,17 @@ export function configuredPublicOrigin(): string | null {
     const raw = process.env.PONTUALL_PUBLIC_URL?.trim();
     if (!raw) return null;
     return raw.replace(/\/+$/, "");
+}
+
+/** Extra origins (proxied domains) trusted by Better Auth, from the env the
+ * Rust parent sets at spawn. Comma-separated, trailing slashes stripped. */
+export function configuredTrustedOrigins(): string[] {
+    const raw = process.env.PONTUALL_TRUSTED_ORIGINS?.trim();
+    if (!raw) return [];
+    return raw
+        .split(",")
+        .map((o) => o.trim().replace(/\/+$/, ""))
+        .filter((o) => o.length > 0);
 }
 
 /** Every non-internal IPv4 origin this machine answers on. */
