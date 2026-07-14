@@ -1,6 +1,6 @@
 {
 	"productName": "PontuAll Test",
-	"version": "0.3.1",
+	"version": "0.3.2",
 	"identifier": "com.tockanest.pontuall.test",
 	"build": {
 		"beforeDevCommand": "bun run sidecar:build:test && bun run dev",

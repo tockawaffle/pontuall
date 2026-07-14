@@ -1,0 +1,6 @@
+{
+  "enabledPlugins": {
+    "linkedin-skills@linkedin-skills": false,
+    "cloudflare@claude-plugins-official": true
+  }
+}

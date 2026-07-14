@@ -1,0 +1,4 @@
+# sqlx hashes the raw bytes of each migration file to detect edits to
+# already-applied migrations. Pin these to LF so Windows checkouts with
+# core.autocrlf=true can't silently flip the bytes and trip that check.
+src-tauri/migrations/**/*.sql text eol=lf
